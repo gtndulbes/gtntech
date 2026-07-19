@@ -1045,6 +1045,7 @@
                 SENSOR_SHT31: 'sensor/sht31',
                 SENSOR_MQ135: 'sensor/mq135',
                 ACTUATOR_STATUS: 'actuator/status',
+                SYSTEM_STATE: 'system/state',  // Untuk sinkronisasi state antar dashboard
             },
             INTERVAL_SAMPLE: 2000,
         };
@@ -1218,6 +1219,11 @@
                     updateChartData();
                     updateTable();
                     break;
+                case CONFIG.MQTT_TOPICS.SYSTEM_STATE:
+                    SyncModule.handleStateMessage(topic, data);
+                    // Setelah menerima state, update UI
+                    updateAllUI();
+                    break;
                 default:
                     break;
             }
@@ -1349,6 +1355,16 @@
             setDot('wifiDot', state.wifiConnected);
             setDot('mqttDot', state.mqttConnected);
             setDot('sheetDot', state.sheetConnected);
+        }
+
+        // Saat toggle Peltier diklik
+        function togglePeltier() {
+            var newState = !state.peltierOn;
+            state.peltierOn = newState;
+            // Kirim kontrol ke ESP32
+            publishControl({ peltierOn: newState });
+            // Sinkron  isasi ke dashboard lain
+            SyncModule.updateLocalState({ peltierOn: newState }, mqttClient);
         }
 
         // =============================================================
@@ -1624,6 +1640,19 @@
                 }
                 updateStatusIndicators();
             }, 10000);
+
+            // Subscribe ke topik sync
+            SyncModule.subscribeState(mqttClient);
+
+            // Set callback untuk perubahan state dari sync
+            SyncModule.setOnStateChange(function(state) {
+                // Update UI berdasarkan state yang diterima
+                updateAllUI();
+            });
+
+            // Contoh saat mode diubah
+            state.mode = 'AUTO';
+            SyncModule.updateLocalState({ mode: 'AUTO' }, mqttClient);
         }
 
         if (document.readyState === 'loading') {

@@ -15,6 +15,7 @@
     </script>
     <script src="assets/js/mqtt-config.js">
     </script>
+    <script src="assets/js/sync.js"></script>
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -1502,6 +1503,7 @@
                 ACTUATOR_CONTROL: 'actuator/control',
                 SYSTEM_CONTROL: 'system/control',
                 SETTING_UPDATE: 'setting/update',
+                SYSTEM_STATE: 'system/state',   // Untuk sinkronisasi state antar dashboard
             },
             SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzomrIc68ISrGNVsOTgYI3nPy0kBgQm4WVUCYWfkB8lcwXgBJPbu2j3yxFhoz59VZk9Xw/exec',
             TELEGRAM_BOT_TOKEN: 'YOUR_BOT_TOKEN',
@@ -1649,9 +1651,22 @@
         }
 
         // Panggil di init()
-        function init() {
+        function init() { // Panggil fungsi init()
             // ... kode init yang sudah ada
-            initMQTT(); // tambahkan ini
+            initMQTT(); // Panggil fungsi initMQTT() untuk mengatur koneksi dan handler MQTT
+            connectMQTT();
+            // Subscribe ke topik sync
+            SyncModule.subscribeState(mqttClient);
+
+            // Set callback untuk perubahan state dari sync
+            SyncModule.setOnStateChange(function(state) {
+                // Update UI berdasarkan state yang diterima
+                updateAllUI();
+
+            // Contoh saat mode diubah
+            state.mode = 'AUTO';
+            SyncModule.updateLocalState({ mode: 'AUTO' }, mqttClient);
+            });
             // ...
         }
 
@@ -1843,11 +1858,25 @@
                     if (data.health !== undefined) state.health = data.health;
                     updateHealthDisplay();
                     break;
+                case CONFIG.MQTT_TOPICS.SYSTEM_STATE:
+                    // SyncModule akan menangani sendiri via callback
+                    SyncModule.handleStateMessage(topic, JSON.stringify(data));
+                    break;
                 default:
                     break;
             }
             // update chart with every data
             updateChartData();
+        }
+
+        function setMode(newMode) {
+            state.mode = newMode;
+            // Update UI lokal
+            updateModeUI();
+            // Sinkronisasi ke user lain
+            SyncModule.updateLocalState({ mode: newMode }, mqttClient);
+            // Kirim ke ESP32
+            publishControl({ mode: newMode });
         }
 
         // =============================================================

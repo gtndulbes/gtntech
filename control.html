@@ -1156,6 +1156,7 @@
                 SYSTEM_CONTROL: 'system/control',
                 SETTING_UPDATE: 'setting/update',
                 ACTUATOR_STATUS: 'actuator/status',
+                SYSTEM_STATE: 'system/state',   // Untuk sinkronisasi state antar dashboard
             },
         };
 
@@ -1325,6 +1326,16 @@
             setDot('wifiDot', state.wifiConnected);
             setDot('mqttDot', state.mqttConnected);
             setDot('sheetDot', state.sheetConnected);
+        }
+
+        // Saat toggle Peltier diklik
+        function togglePeltier() {
+            var newState = !state.peltierOn;
+            state.peltierOn = newState;
+            // Kirim kontrol ke ESP32
+            publishControl({ peltierOn: newState });
+            // Sinkronisasi ke dashboard lain
+            SyncModule.updateLocalState({ peltierOn: newState }, mqttClient);
         }
 
         function updateModeUI() {

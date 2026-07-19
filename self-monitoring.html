@@ -928,6 +928,7 @@
                 SELF_MONITOR: 'system/selfmonitor',
                 SYSTEM_ALARM: 'system/alarm',
                 SENSOR_STATUS: 'sensor/status',
+                SYSTEM_STATE: 'system/state',   // Untuk sinkronisasi state antar dashboard
             },
             INTERVAL_CHECK: 10000,
         };
@@ -1123,6 +1124,12 @@
                 }
                 updateComponentsUI();
             }
+        }
+
+        // Saat ada alarm baru
+        function addAlarm(message) {
+            // ... tambahkan ke state.alarms
+            SyncModule.updateLocalState({ alarms: state.alarms }, mqttClient);
         }
 
         // =============================================================

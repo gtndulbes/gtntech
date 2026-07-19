@@ -1009,6 +1009,8 @@
             lastSync: null
         };
 
+        var initialized = false;
+
         mqttManager.on(MQTT_CONFIG.TOPICS.SENSOR_SHT31, function(data) {
         // Tambahkan data baru ke tabel (dengan timestamp sekarang)
         var newRow = {
@@ -1036,6 +1038,11 @@
         function formatTime(d) {
             d = d || new Date();
             return d.toLocaleTimeString('id-ID', { hour12: false });
+        }
+
+        function safeNumber(value, fallback = 0) {
+            var num = Number(value);
+            return Number.isFinite(num) ? num : fallback;
         }
 
         function formatDateTime(d) {
@@ -1445,12 +1452,15 @@
         // 14. INIT
         // =============================================================
         function init() {
+            if (initialized) return;
+            initialized = true;
             loadData();
             setInterval(function() {
                 loadData();
             }, 30000);
             setTimeout(function() {
-                document.getElementById('loading-screen').classList.add('hide');
+                var loadingScreen = document.getElementById('loading-screen');
+                if (loadingScreen) loadingScreen.classList.add('hide');
             }, 800);
         }
 

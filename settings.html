@@ -1129,12 +1129,19 @@
             dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
         };
 
+        let initialized = false;
+
         // =============================================================
         // 3. UTILITY
         // =============================================================
         function formatTime(d) { d = d || new Date(); return d.toLocaleTimeString('id-ID', { hour12: false }); }
 
         function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+        function safeNumber(value, fallback = 0) {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : fallback;
+        }
 
         // =============================================================
         // 4. TOAST
@@ -1386,7 +1393,8 @@
         // 9. INIT
         // =============================================================
         function init() {
-            // Set initial state (data kosong, menunggu MQTT)
+            if (initialized) return;
+            initialized = true;
             state.temp = null;
             state.hum = null;
             state.nh3 = null;
@@ -1395,33 +1403,17 @@
             state.coolFanPwm = 0;
             state.health = 100;
 
-            // Update UI dengan placeholder "---" atau "Menunggu data..."
-            updateSensorDisplay();   // fungsi ini harus handle null
-            updateActuatorDisplay();
-            updateHealthDisplay();
             updateStatusIndicators();
-
-            // Init chart (kosong dulu)
-            initChart();
-
-            // Init gauges (tampilkan 0 atau --)
-            updateGauges();
-
-            // Connect MQTT (sumber data utama)
             connectMQTT();
 
-            // JANGAN panggil startSimulation() !
-
-            // Add startup messages
             addNotification('Menunggu data dari ESP32...', 'info');
             addLog('Sistem menunggu koneksi MQTT');
 
-            // Hide loading screen
             setTimeout(() => {
-                document.getElementById('loading-screen').classList.add('hide');
+                const loadingScreen = document.getElementById('loading-screen');
+                if (loadingScreen) loadingScreen.classList.add('hide');
             }, 800);
 
-            // Auto refresh status
             setInterval(() => {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
@@ -1429,7 +1421,6 @@
                 updateStatusIndicators();
             }, 10000);
 
-            // Publish status periodically (jika MQTT terhubung)
             setInterval(() => {
                 if (state.mqttConnected && mqttClient) {
                     mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({

@@ -1066,6 +1066,8 @@
             updateFuzzyUI();
         });
 
+        let initialized = false;
+
         // =============================================================
         // 3. UTILITY
         // =============================================================
@@ -1076,6 +1078,16 @@
         function randomBetween(min, max) { return Math.random() * (max - min) + min; }
 
         function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+        function safeNumber(value, fallback = 0) {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : fallback;
+        }
+
+        function formatValue(value, digits = 1) {
+            const num = safeNumber(value, Number.NaN);
+            return Number.isNaN(num) ? '---' : num.toFixed(digits);
+        }
 
         // =============================================================
         // 4. TOAST
@@ -1094,6 +1106,14 @@
             container.appendChild(el);
             setTimeout(() => { el.classList.add('hide');
                 setTimeout(() => el.remove(), 400); }, duration);
+        }
+
+        function addLog(message) {
+            console.log(message);
+        }
+
+        function addNotification(message, type = 'info') {
+            showToast(message, type);
         }
 
         // =============================================================
@@ -1310,53 +1330,62 @@
         }
 
         function updateAllUI() {
-            // Setpoint
-            document.getElementById('setpointTempDisplay').innerHTML = state.setpointTemp.toFixed(1) +
-                ' <span class="unit">°C</span>';
-            document.getElementById('setpointHumDisplay').innerHTML = state.setpointHum.toFixed(0) +
-                ' <span class="unit">%</span>';
+            const setpointTempDisplay = document.getElementById('setpointTempDisplay');
+            if (setpointTempDisplay) setpointTempDisplay.innerHTML = `${formatValue(state.setpointTemp, 1)} <span class="unit">°C</span>`;
+            const setpointHumDisplay = document.getElementById('setpointHumDisplay');
+            if (setpointHumDisplay) setpointHumDisplay.innerHTML = `${formatValue(state.setpointHum, 0)} <span class="unit">%</span>`;
 
-            // Error
             const errorEl = document.getElementById('errorDisplay');
-            errorEl.innerHTML = state.error.toFixed(2) + ' <span class="unit">°C</span>';
-            errorEl.className = `value ${Math.abs(state.error) > 2 ? 'danger' : Math.abs(state.error) > 1 ? 'warning' : ''}`;
-
-            const deltaEl = document.getElementById('deltaErrorDisplay');
-            deltaEl.innerHTML = state.deltaError.toFixed(2) + ' <span class="unit">°C/s</span>';
-            deltaEl.className =
-            `value ${Math.abs(state.deltaError) > 0.5 ? 'danger' : Math.abs(state.deltaError) > 0.2 ? 'warning' : ''}`;
-
-            // PID
-            document.getElementById('kpDisplay').textContent = state.kp.toFixed(2);
-            document.getElementById('kiDisplay').textContent = state.ki.toFixed(2);
-            document.getElementById('kdDisplay').textContent = state.kd.toFixed(2);
-            document.getElementById('outputDisplay').innerHTML = state.outputPid.toFixed(1) + ' <span class="unit">%</span>';
-
-            // Sliders
-            document.getElementById('kpSlider').value = state.kp;
-            document.getElementById('kpSliderDisplay').textContent = state.kp.toFixed(1);
-            document.getElementById('kiSlider').value = state.ki;
-            document.getElementById('kiSliderDisplay').textContent = state.ki.toFixed(1);
-            document.getElementById('kdSlider').value = state.kd;
-            document.getElementById('kdSliderDisplay').textContent = state.kd.toFixed(2);
-
-            // Rules
-            const ruleList = document.getElementById('ruleList');
-            const activeRules = state.rules.filter(r => r.active);
-            document.getElementById('ruleCount').textContent = activeRules.length + ' aturan';
-            if (activeRules.length === 0) {
-                ruleList.innerHTML =
-                    `<div class="rule-item"><span class="rule-text text-gray-400">Tidak ada aturan aktif</span></div>`;
-            } else {
-                ruleList.innerHTML = activeRules.map(r => `
-              <div class="rule-item active">
-                <span class="rule-text">${r.condition}</span>
-                <span class="rule-weight">${r.weight.toFixed(2)}</span>
-              </div>
-            `).join('');
+            if (errorEl) {
+                errorEl.innerHTML = `${formatValue(state.error, 2)} <span class="unit">°C</span>`;
+                errorEl.className = `value ${Math.abs(safeNumber(state.error, 0)) > 2 ? 'danger' : Math.abs(safeNumber(state.error, 0)) > 1 ? 'warning' : ''}`;
             }
 
-            // Membership functions
+            const deltaEl = document.getElementById('deltaErrorDisplay');
+            if (deltaEl) {
+                deltaEl.innerHTML = `${formatValue(state.deltaError, 2)} <span class="unit">°C/s</span>`;
+                deltaEl.className = `value ${Math.abs(safeNumber(state.deltaError, 0)) > 0.5 ? 'danger' : Math.abs(safeNumber(state.deltaError, 0)) > 0.2 ? 'warning' : ''}`;
+            }
+
+            const kpDisplay = document.getElementById('kpDisplay');
+            if (kpDisplay) kpDisplay.textContent = formatValue(state.kp, 2);
+            const kiDisplay = document.getElementById('kiDisplay');
+            if (kiDisplay) kiDisplay.textContent = formatValue(state.ki, 2);
+            const kdDisplay = document.getElementById('kdDisplay');
+            if (kdDisplay) kdDisplay.textContent = formatValue(state.kd, 2);
+            const outputDisplay = document.getElementById('outputDisplay');
+            if (outputDisplay) outputDisplay.innerHTML = `${formatValue(state.outputPid, 1)} <span class="unit">%</span>`;
+
+            const kpSlider = document.getElementById('kpSlider');
+            if (kpSlider) kpSlider.value = safeNumber(state.kp, 0);
+            const kpSliderDisplay = document.getElementById('kpSliderDisplay');
+            if (kpSliderDisplay) kpSliderDisplay.textContent = formatValue(state.kp, 1);
+            const kiSlider = document.getElementById('kiSlider');
+            if (kiSlider) kiSlider.value = safeNumber(state.ki, 0);
+            const kiSliderDisplay = document.getElementById('kiSliderDisplay');
+            if (kiSliderDisplay) kiSliderDisplay.textContent = formatValue(state.ki, 1);
+            const kdSlider = document.getElementById('kdSlider');
+            if (kdSlider) kdSlider.value = safeNumber(state.kd, 0);
+            const kdSliderDisplay = document.getElementById('kdSliderDisplay');
+            if (kdSliderDisplay) kdSliderDisplay.textContent = formatValue(state.kd, 2);
+
+            const ruleList = document.getElementById('ruleList');
+            const ruleCount = document.getElementById('ruleCount');
+            const activeRules = state.rules.filter(r => r.active);
+            if (ruleCount) ruleCount.textContent = `${activeRules.length} aturan`;
+            if (ruleList) {
+                if (activeRules.length === 0) {
+                    ruleList.innerHTML = `<div class="rule-item"><span class="rule-text text-gray-400">Tidak ada aturan aktif</span></div>`;
+                } else {
+                    ruleList.innerHTML = activeRules.map(r => `
+                      <div class="rule-item active">
+                        <span class="rule-text">${r.condition}</span>
+                        <span class="rule-weight">${safeNumber(r.weight, 0).toFixed(2)}</span>
+                      </div>
+                    `).join('');
+                }
+            }
+
             document.querySelectorAll('#mfError .mf-item').forEach(el => {
                 const label = el.textContent.trim();
                 el.classList.toggle('active', state.mfError.includes(label));
@@ -1563,6 +1592,8 @@
         // 12. INIT
         // =============================================================
         function init() {
+            if (initialized) return;
+            initialized = true;
             state.setpointTemp = 27.5;
             state.setpointHum = 75;
             state.kp = 2.0;
@@ -1574,24 +1605,17 @@
 
             updateAllUI();
             connectMQTT();
-            // startSimulation();
-
-            // Init chart (kosong dulu)
             initChart();
-
-            // Init gauges (tampilkan 0 atau --)
             updateGauges();
 
-                // Add startup messages
             addNotification('Menunggu data dari ESP32...', 'info');
             addLog('Sistem menunggu koneksi MQTT');
 
-            // Hide loading screen
             setTimeout(() => {
-                document.getElementById('loading-screen').classList.add('hide');
+                const loadingScreen = document.getElementById('loading-screen');
+                if (loadingScreen) loadingScreen.classList.add('hide');
             }, 800);
 
-            // Auto refresh status
             setInterval(() => {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
@@ -1599,7 +1623,6 @@
                 updateStatusIndicators();
             }, 10000);
 
-            // Publish status periodically (jika MQTT terhubung)
             setInterval(() => {
                 if (state.mqttConnected && mqttClient) {
                     mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({

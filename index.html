@@ -1546,6 +1546,9 @@
             dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
         };
 
+        let initialized = false;
+        let mqttInitialized = false;
+
         // =============================================================
         // 3. UTILITY FUNCTIONS
         // =============================================================
@@ -1567,6 +1570,18 @@
 
         function debounce(fn, ms) { let timer; return (...args) => { clearTimeout(timer);
                 timer = setTimeout(() => fn(...args), ms); }; }
+
+        function safeNumber(value, fallback = 0) {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : fallback;
+        }
+
+        function formatValue(value, digits = 1) {
+            if (value === null || value === undefined || Number.isNaN(Number(value))) {
+                return '---';
+            }
+            return Number(value).toFixed(digits);
+        }
 
         // =============================================================
         // 4. TOAST NOTIFICATIONS
@@ -1592,20 +1607,18 @@
         // =============================================================
 
         function initMQTT() {
-            // Register handler untuk setiap topic
+            if (mqttInitialized) return;
+            mqttInitialized = true;
+
             mqttManager.on(MQTT_CONFIG.TOPICS.SENSOR_SHT31, function(data) {
                 if (data.temperature !== undefined) state.temp = data.temperature;
                 if (data.humidity !== undefined) state.hum = data.humidity;
-                updateSensorDisplay();
-                updateGauges();
-                updateChartData();
+                updateAllUI();
             });
 
             mqttManager.on(MQTT_CONFIG.TOPICS.SENSOR_MQ135, function(data) {
                 if (data.nh3 !== undefined) state.nh3 = data.nh3;
-                updateSensorDisplay();
-                updateGauges();
-                updateChartData();
+                updateAllUI();
             });
 
             mqttManager.on(MQTT_CONFIG.TOPICS.ACTUATOR_STATUS, function(data) {
@@ -1616,7 +1629,7 @@
                 if (data.fanOn !== undefined) state.fanOn = data.fanOn;
                 if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
                 if (data.mode !== undefined) state.mode = data.mode;
-                updateActuatorDisplay();
+                updateAllUI();
             });
 
             mqttManager.on(MQTT_CONFIG.TOPICS.SYSTEM_ALARM, function(data) {
@@ -1627,27 +1640,24 @@
 
             mqttManager.on(MQTT_CONFIG.TOPICS.SELF_MONITOR, function(data) {
                 if (data.health !== undefined) state.health = data.health;
-                updateHealthDisplay();
+                updateAllUI();
             });
 
             mqttManager.on(MQTT_CONFIG.TOPICS.SENSOR_STATUS, function(data) {
-                // update status koneksi
                 if (data.esp32 !== undefined) state.wifiConnected = data.esp32 === 'online';
                 updateStatusIndicators();
             });
 
-            // Status koneksi MQTT
             mqttManager.onStatusChange(function(connected) {
                 state.mqttConnected = connected;
                 updateStatusIndicators();
                 if (connected) {
-                    showToast('MQTT Terhubung', 'success');
+                    addNotification('MQTT terhubung', 'success');
                 } else {
-                    showToast('MQTT Terputus', 'error');
+                    addNotification('MQTT terputus', 'error');
                 }
             });
 
-            // Koneksi
             mqttManager.connect();
         }
 
@@ -1754,59 +1764,9 @@
         let mqttClient = null;
 
         function connectMQTT() {
-            try {
-                mqttClient = mqtt.connect(CONFIG.MQTT_BROKER, {
-                    clientId: 'dashboard_' + uid(),
-                    clean: true,
-                    reconnectPeriod: 3000,
-                });
-
-                mqttClient.on('connect', () => {
-                    state.mqttConnected = true;
-                    updateStatusIndicators();
-                    showToast('MQTT Terhubung', 'success');
-                    addLog('MQTT Connected - Menunggu data dari ESP32');
-                    // Subscribe ke semua topik yang diperlukan
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
-                    // Kirim status dashboard online
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
-                        command: 'dashboard_online',
-                        timestamp: new Date().toISOString()
-                    }));
-                });
-
-                mqttClient.on('message', (topic, payload) => {
-                    try {
-                        const data = JSON.parse(payload.toString());
-                        handleMqttMessage(topic, data);
-                    } catch (e) {
-                        // raw
-                    }
-                });
-
-                mqttClient.on('close', () => {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                    showToast('MQTT Terputus', 'error');
-                    addLog('MQTT Disconnected');
-                });
-
-                mqttClient.on('error', (err) => {
-                    console.error('MQTT Error:', err);
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                });
-
-            } catch (e) {
-                console.error('MQTT init error:', e);
-                state.mqttConnected = false;
-                updateStatusIndicators();
-            }
+            if (mqttInitialized) return mqttManager;
+            initMQTT();
+            return mqttManager;
         }
 
         function handleMqttMessage(topic, data) {
@@ -1814,16 +1774,11 @@
                 case CONFIG.MQTT_TOPICS.SENSOR_SHT31:
                     if (data.temperature !== undefined) state.temp = data.temperature;
                     if (data.humidity !== undefined) state.hum = data.humidity;
-                    updateSensorDisplay();
-                    updateGauges();
                     break;
                 case CONFIG.MQTT_TOPICS.SENSOR_MQ135:
                     if (data.nh3 !== undefined) state.nh3 = data.nh3;
-                    updateSensorDisplay();
-                    updateGauges();
                     break;
                 case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
-                    // Update status aktuator dari ESP
                     if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
                     if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
                     if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
@@ -1831,46 +1786,40 @@
                     if (data.fanOn !== undefined) state.fanOn = data.fanOn;
                     if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
                     if (data.mode !== undefined) state.mode = data.mode;
-                    needUpdate = true;
-                    updateActuatorDisplay();
                     break;
                 case CONFIG.MQTT_TOPICS.SYSTEM_ALARM:
                     if (data.alarm) addAlarm(data.alarm, data.active !== false);
                     break;
                 case CONFIG.MQTT_TOPICS.SELF_MONITOR:
                     if (data.health !== undefined) state.health = data.health;
-                    updateHealthDisplay();
                     break;
                 case CONFIG.MQTT_TOPICS.SYSTEM_STATE:
-                    // SyncModule akan menangani sendiri via callback
                     SyncModule.handleStateMessage(topic, JSON.stringify(data));
                     break;
                 default:
                     break;
             }
 
-            if (needUpdate) {
-                // Tandai bahwa kita sudah menerima data
-                state.dataReceived = true;
-                updateSensorDisplay();
-                updateActuatorDisplay();
-                updateGauges();
-                updateHealthDisplay();
-                updateStatusIndicators();
-                updateChartData();
-            }
+            state.dataReceived = true;
+            updateAllUI();
+        }
 
-            // update chart with every data
-            updateChartData();
+        function publishControl(payload) {
+            if (!payload || typeof payload !== 'object') return false;
+            if (mqttManager && typeof mqttManager.publish === 'function') {
+                return mqttManager.publish(CONFIG.MQTT_TOPICS.ACTUATOR_CONTROL, payload);
+            }
+            if (mqttClient && typeof mqttClient.publish === 'function') {
+                mqttClient.publish(CONFIG.MQTT_TOPICS.ACTUATOR_CONTROL, JSON.stringify(payload));
+                return true;
+            }
+            return false;
         }
 
         function setMode(newMode) {
             state.mode = newMode;
-            // Update UI lokal
             updateModeUI();
-            // Sinkronisasi ke user lain
             SyncModule.updateLocalState({ mode: newMode }, mqttManager);
-            // Kirim ke ESP32
             publishControl({ mode: newMode });
         }
 
@@ -1965,97 +1914,135 @@
         // 10. UI UPDATE FUNCTIONS
         // =============================================================
 
+        function updateModeUI() {
+            const actuatorMode = document.getElementById('actuatorMode');
+            if (actuatorMode) {
+                actuatorMode.innerHTML = `Mode: <strong>${state.mode || 'AUTO'}</strong>`;
+            }
+        }
+
         function updateSensorDisplay() {
-            const t = state.temp,
-                h = state.hum,
-                n = state.nh3;
-            
-            // Jika data belum datang, tampilkan "---"
-            const tempDisplay = (t !== null && t !== undefined) ? t.toFixed(1) : '---';
-            const humDisplay = (h !== null && h !== undefined) ? h.toFixed(1) : '---';
-            const nh3Display = (n !== null && n !== undefined) ? n.toFixed(1) : '---';
-            
-            document.getElementById('tempValue').innerHTML = `${t.toFixed(1)} <span class="unit">°C</span>`;
-            document.getElementById('humValue').innerHTML = `${h.toFixed(1)} <span class="unit">%RH</span>`;
-            document.getElementById('nh3Value').innerHTML = `${n.toFixed(1)} <span class="unit">ppm</span>`;
+            const tempValue = safeNumber(state.temp, 0);
+            const humValue = safeNumber(state.hum, 0);
+            const nh3Value = safeNumber(state.nh3, 0);
 
-            // Progress
-            const tempPct = ((t - 24) / (29 - 24)) * 100;
-            document.getElementById('tempProgress').style.width = clamp(tempPct, 0, 100) + '%';
-            document.getElementById('tempProgress').style.background = t > 29 ? '#e74c3c' : t < 26 ? '#f1c40f' : '#2a9d8f';
+            const tempEl = document.getElementById('tempValue');
+            if (tempEl) tempEl.innerHTML = `${formatValue(state.temp, 1)} <span class="unit">°C</span>`;
 
-            const humPct = ((h - 60) / (90 - 60)) * 100;
-            document.getElementById('humProgress').style.width = clamp(humPct, 0, 100) + '%';
-            document.getElementById('humProgress').style.background = h > 90 ? '#e74c3c' : h < 60 ? '#f1c40f' : '#3498db';
+            const humEl = document.getElementById('humValue');
+            if (humEl) humEl.innerHTML = `${formatValue(state.hum, 1)} <span class="unit">%RH</span>`;
 
-            const nh3Pct = (n / 25) * 100;
-            document.getElementById('nh3Progress').style.width = clamp(nh3Pct, 0, 100) + '%';
-            document.getElementById('nh3Progress').style.background = n > 25 ? '#e74c3c' : n > 15 ? '#f1c40f' : '#2a9d8f';
+            const nh3El = document.getElementById('nh3Value');
+            if (nh3El) nh3El.innerHTML = `${formatValue(state.nh3, 1)} <span class="unit">ppm</span>`;
 
-            // Status badges
+            const tempPct = ((tempValue - 24) / (29 - 24)) * 100;
+            const tempProgress = document.getElementById('tempProgress');
+            if (tempProgress) {
+                tempProgress.style.width = clamp(tempPct, 0, 100) + '%';
+                tempProgress.style.background = tempValue > 29 ? '#e74c3c' : tempValue < 26 ? '#f1c40f' : '#2a9d8f';
+            }
+
+            const humPct = ((humValue - 60) / (90 - 60)) * 100;
+            const humProgress = document.getElementById('humProgress');
+            if (humProgress) {
+                humProgress.style.width = clamp(humPct, 0, 100) + '%';
+                humProgress.style.background = humValue > 90 ? '#e74c3c' : humValue < 60 ? '#f1c40f' : '#3498db';
+            }
+
+            const nh3Pct = (nh3Value / 25) * 100;
+            const nh3Progress = document.getElementById('nh3Progress');
+            if (nh3Progress) {
+                nh3Progress.style.width = clamp(nh3Pct, 0, 100) + '%';
+                nh3Progress.style.background = nh3Value > 25 ? '#e74c3c' : nh3Value > 15 ? '#f1c40f' : '#2a9d8f';
+            }
+
+            const hasTemp = state.temp !== null && state.temp !== undefined && !Number.isNaN(Number(state.temp));
             const tempBadge = document.getElementById('tempStatusBadge');
-            tempBadge.textContent = t > 29 ? 'Panas' : t < 26 ? 'Dingin' : 'Normal';
-            tempBadge.className = `status-badge ${t > 29 ? 'danger' : t < 26 ? 'warning' : 'normal'}`;
+            if (tempBadge) {
+                tempBadge.textContent = !hasTemp ? 'Menunggu' : tempValue > 29 ? 'Panas' : tempValue < 26 ? 'Dingin' : 'Normal';
+                tempBadge.className = `status-badge ${!hasTemp ? 'normal' : tempValue > 29 ? 'danger' : tempValue < 26 ? 'warning' : 'normal'}`;
+            }
 
+            const hasHum = state.hum !== null && state.hum !== undefined && !Number.isNaN(Number(state.hum));
             const humBadge = document.getElementById('humStatusBadge');
-            humBadge.textContent = h > 90 ? 'Basah' : h < 60 ? 'Kering' : 'Normal';
-            humBadge.className = `status-badge ${h > 90 ? 'danger' : h < 60 ? 'warning' : 'normal'}`;
+            if (humBadge) {
+                humBadge.textContent = !hasHum ? 'Menunggu' : humValue > 90 ? 'Basah' : humValue < 60 ? 'Kering' : 'Normal';
+                humBadge.className = `status-badge ${!hasHum ? 'normal' : humValue > 90 ? 'danger' : humValue < 60 ? 'warning' : 'normal'}`;
+            }
 
+            const hasNh3 = state.nh3 !== null && state.nh3 !== undefined && !Number.isNaN(Number(state.nh3));
             const nh3Badge = document.getElementById('nh3StatusBadge');
-            nh3Badge.textContent = n > 25 ? 'Berbahaya' : n > 15 ? 'Waspada' : 'Normal';
-            nh3Badge.className = `status-badge ${n > 25 ? 'danger' : n > 15 ? 'warning' : 'normal'}`;
+            if (nh3Badge) {
+                nh3Badge.textContent = !hasNh3 ? 'Menunggu' : nh3Value > 25 ? 'Berbahaya' : nh3Value > 15 ? 'Waspada' : 'Normal';
+                nh3Badge.className = `status-badge ${!hasNh3 ? 'normal' : nh3Value > 25 ? 'danger' : nh3Value > 15 ? 'warning' : 'normal'}`;
+            }
 
-            // Gauge values
-            document.getElementById('gaugeTempVal').textContent = t.toFixed(1);
-            document.getElementById('gaugeHumVal').textContent = h.toFixed(1);
-            document.getElementById('gaugeNh3Val').textContent = n.toFixed(1);
+            const gaugeTempVal = document.getElementById('gaugeTempVal');
+            if (gaugeTempVal) gaugeTempVal.textContent = formatValue(state.temp, 1);
+
+            const gaugeHumVal = document.getElementById('gaugeHumVal');
+            if (gaugeHumVal) gaugeHumVal.textContent = formatValue(state.hum, 1);
+
+            const gaugeNh3Val = document.getElementById('gaugeNh3Val');
+            if (gaugeNh3Val) gaugeNh3Val.textContent = formatValue(state.nh3, 1);
         }
 
         function updateActuatorDisplay() {
-            document.getElementById('actuatorMode').innerHTML = `Mode: <strong>${state.mode}</strong>`;
+            updateModeUI();
 
             const peltier = document.getElementById('peltierDetail');
-            peltier.textContent = `${state.peltierOn ? 'ON' : 'OFF'} · ${state.peltierPwm.toFixed(0)}%`;
+            if (peltier) peltier.textContent = `${state.peltierOn ? 'ON' : 'OFF'} · ${formatValue(state.peltierPwm, 0)}%`;
             const pLed = document.getElementById('peltierLed');
-            pLed.className = `status-led ${state.peltierOn ? 'on' : 'off'}`;
+            if (pLed) pLed.className = `status-led ${state.peltierOn ? 'on' : 'off'}`;
 
             const fan = document.getElementById('fanDetail');
-            fan.textContent = `${state.fanOn ? 'ON' : 'OFF'} · ${state.fanPwm.toFixed(0)}%`;
+            if (fan) fan.textContent = `${state.fanOn ? 'ON' : 'OFF'} · ${formatValue(state.fanPwm, 0)}%`;
             const fLed = document.getElementById('fanLed');
-            fLed.className = `status-led ${state.fanOn ? 'on' : 'off'}`;
+            if (fLed) fLed.className = `status-led ${state.fanOn ? 'on' : 'off'}`;
 
             const cool = document.getElementById('coolFanDetail');
-            cool.textContent = `${state.coolFanOn ? 'ON' : 'OFF'} · ${state.coolFanPwm.toFixed(0)}%`;
+            if (cool) cool.textContent = `${state.coolFanOn ? 'ON' : 'OFF'} · ${formatValue(state.coolFanPwm, 0)}%`;
             const cLed = document.getElementById('coolFanLed');
-            cLed.className = `status-led ${state.coolFanOn ? 'on' : 'off'}`;
+            if (cLed) cLed.className = `status-led ${state.coolFanOn ? 'on' : 'off'}`;
         }
 
         function updateHealthDisplay() {
-            const val = Math.round(state.health);
-            document.getElementById('healthValue').textContent = val + '%';
+            const val = Math.round(clamp(safeNumber(state.health, 0), 0, 100));
+            const healthValue = document.getElementById('healthValue');
+            if (healthValue) healthValue.textContent = val + '%';
+
             const ring = document.getElementById('healthRing');
             const label = document.getElementById('healthLabel');
-            if (val >= 80) {
-                ring.style.border = '4px solid #2a9d8f';
-                ring.style.boxShadow = '0 0 30px rgba(42,157,143,0.2)';
-                label.textContent = 'Baik';
-                label.className = 'text-xs text-green-400';
-            } else if (val >= 60) {
-                ring.style.border = '4px solid #f1c40f';
-                ring.style.boxShadow = '0 0 30px rgba(241,196,15,0.2)';
-                label.textContent = 'Waspada';
-                label.className = 'text-xs text-yellow-400';
-            } else {
-                ring.style.border = '4px solid #e74c3c';
-                ring.style.boxShadow = '0 0 30px rgba(231,76,60,0.2)';
-                label.textContent = 'Kritis';
-                label.className = 'text-xs text-red-400';
+            if (ring) {
+                if (val >= 80) {
+                    ring.style.border = '4px solid #2a9d8f';
+                    ring.style.boxShadow = '0 0 30px rgba(42,157,143,0.2)';
+                } else if (val >= 60) {
+                    ring.style.border = '4px solid #f1c40f';
+                    ring.style.boxShadow = '0 0 30px rgba(241,196,15,0.2)';
+                } else {
+                    ring.style.border = '4px solid #e74c3c';
+                    ring.style.boxShadow = '0 0 30px rgba(231,76,60,0.2)';
+                }
             }
-            // Uptime
-            state.uptime += CONFIG.INTERVAL_SAMPLE / 1000;
+            if (label) {
+                if (val >= 80) {
+                    label.textContent = 'Baik';
+                    label.className = 'text-xs text-green-400';
+                } else if (val >= 60) {
+                    label.textContent = 'Waspada';
+                    label.className = 'text-xs text-yellow-400';
+                } else {
+                    label.textContent = 'Kritis';
+                    label.className = 'text-xs text-red-400';
+                }
+            }
+
+            state.uptime = safeNumber(state.uptime, 0) + CONFIG.INTERVAL_SAMPLE / 1000;
             const hrs = Math.floor(state.uptime / 3600);
             const mins = Math.floor((state.uptime % 3600) / 60);
-            document.getElementById('uptime').textContent = `${hrs}h ${mins}m`;
+            const uptimeEl = document.getElementById('uptime');
+            if (uptimeEl) uptimeEl.textContent = `${hrs}h ${mins}m`;
         }
 
         function updateStatusIndicators() {
@@ -2067,13 +2054,32 @@
             setDot('mqttDot', state.mqttConnected);
             setDot('sheetDot', state.sheetConnected);
 
-            // Status items
-            document.getElementById('statusEsp').className = `dot ${state.wifiConnected ? 'green' : 'red'}`;
-            document.getElementById('statusWifi').className = `dot ${state.wifiConnected ? 'green' : 'red'}`;
-            document.getElementById('statusMqtt').className = `dot ${state.mqttConnected ? 'green' : 'red'}`;
-            document.getElementById('statusSheet').className = `dot ${state.sheetConnected ? 'green' : 'red'}`;
-            document.getElementById('statusFuzzy').className = `dot ${state.mode === 'AUTO' ? 'green' : 'yellow'}`;
-            document.getElementById('statusSelf').className = `dot ${state.health > 60 ? 'green' : 'yellow'}`;
+            const statusEsp = document.getElementById('statusEsp');
+            if (statusEsp) statusEsp.className = `dot ${state.wifiConnected ? 'green' : 'red'}`;
+
+            const statusWifi = document.getElementById('statusWifi');
+            if (statusWifi) statusWifi.className = `dot ${state.wifiConnected ? 'green' : 'red'}`;
+
+            const statusMqtt = document.getElementById('statusMqtt');
+            if (statusMqtt) statusMqtt.className = `dot ${state.mqttConnected ? 'green' : 'red'}`;
+
+            const statusSheet = document.getElementById('statusSheet');
+            if (statusSheet) statusSheet.className = `dot ${state.sheetConnected ? 'green' : 'red'}`;
+
+            const statusFuzzy = document.getElementById('statusFuzzy');
+            if (statusFuzzy) statusFuzzy.className = `dot ${state.mode === 'AUTO' ? 'green' : 'yellow'}`;
+
+            const statusSelf = document.getElementById('statusSelf');
+            if (statusSelf) statusSelf.className = `dot ${state.health > 60 ? 'green' : 'yellow'}`;
+        }
+
+        function updateAllUI() {
+            updateSensorDisplay();
+            updateActuatorDisplay();
+            updateHealthDisplay();
+            updateStatusIndicators();
+            updateGauges();
+            updateChartData();
         }
 
         // =============================================================
@@ -2081,7 +2087,7 @@
         // =============================================================
         function drawGauge(canvasId, value, min, max, unit, color) {
             const canvas = document.getElementById(canvasId);
-            if (!canvas) return;
+            if (!canvas || !canvas.getContext || !canvas.parentElement) return;
             const ctx = canvas.getContext('2d');
             const rect = canvas.parentElement.getBoundingClientRect();
             const size = Math.min(rect.width || 140, rect.height || 140);
@@ -2093,13 +2099,12 @@
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            const v = clamp(value, min, max);
+            const v = clamp(safeNumber(value, min), min, max);
             const pct = (v - min) / (max - min);
             const startAngle = -Math.PI * 0.75;
             const endAngle = Math.PI * 0.75;
             const angle = startAngle + pct * (endAngle - startAngle);
 
-            // Background arc
             ctx.beginPath();
             ctx.arc(cx, cy, r, startAngle, endAngle);
             ctx.strokeStyle = 'rgba(255,255,255,0.06)';
@@ -2107,12 +2112,11 @@
             ctx.lineCap = 'round';
             ctx.stroke();
 
-            // Value arc
             const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
             const c = color || '#2a9d8f';
-            grad.addColorStop(0, '#2a9d8f');
-            grad.addColorStop(0.5, '#2a9d8f');
-            grad.addColorStop(1, '#2a9d8f');
+            grad.addColorStop(0, c);
+            grad.addColorStop(0.5, c);
+            grad.addColorStop(1, c);
             ctx.beginPath();
             ctx.arc(cx, cy, r, startAngle, angle);
             ctx.strokeStyle = grad;
@@ -2120,7 +2124,6 @@
             ctx.lineCap = 'round';
             ctx.stroke();
 
-            // Center dot
             ctx.beginPath();
             ctx.arc(cx, cy, 6, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(255,255,255,0.08)';
@@ -2409,7 +2412,9 @@
         // 19. INIT
         // =============================================================
         function init() {
-            // Set initial state
+            if (initialized) return;
+            initialized = true;
+
             state.temp = null;
             state.hum = null;
             state.nh3 = null;
@@ -2418,56 +2423,39 @@
             state.coolFanPwm = 0;
             state.health = 97;
 
-            // Update UI
-            updateSensorDisplay();
-            updateActuatorDisplay();
-            updateHealthDisplay();
-            updateStatusIndicators();
-
-            // Init gauges
+            updateAllUI();
             setTimeout(updateGauges, 100);
 
-
-            initMQTT(); // Panggil fungsi initMQTT() untuk mengatur koneksi dan handler MQTT
             connectMQTT();
-            // Init chart (kosong dulu)
             initChart();
 
-            // Init gauges (tampilkan 0 atau --)
-            updateGauges();
-
-                // Add startup messages
             addNotification('Menunggu data dari ESP32...', 'info');
             addLog('Sistem menunggu koneksi MQTT');
 
-            // Hide loading screen
-            setTimeout(() => {
-                document.getElementById('loading-screen').classList.add('hide');
-            }, 800);
+            const loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                setTimeout(() => loadingScreen.classList.add('hide'), 800);
+            }
 
-            // Auto refresh status
             setInterval(() => {
-                if (!state.mqttConnected && mqttClient) {
-                    try { mqttClient.reconnect(); } catch (e) {}
+                if (!state.mqttConnected && mqttManager && mqttManager.client) {
+                    try { mqttManager.client.reconnect(); } catch (e) {}
                 }
                 updateStatusIndicators();
             }, 10000);
 
-            // Publish status periodically (jika MQTT terhubung)
             setInterval(() => {
-                if (state.mqttConnected && mqttClient) {
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
+                if (state.mqttConnected && mqttManager && typeof mqttManager.publish === 'function') {
+                    mqttManager.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, {
                         dashboard: 'online',
                         timestamp: new Date().toISOString(),
                         health: state.health,
-                    }));
+                    });
                 }
             }, 15000);
-            
-            // Subscribe ke topik sync
+
             SyncModule.subscribeState(mqttManager);
 
-            // Set callback untuk perubahan state dari sync
             SyncModule.setOnStateChange(function(syncState) {
                 if (syncState.mode !== undefined) state.mode = syncState.mode;
                 if (syncState.peltierOn !== undefined) state.peltierOn = syncState.peltierOn;
@@ -2494,7 +2482,6 @@
                 updateAllUI();
             });
 
-            // Sinkronisasi awal
             SyncModule.updateLocalState({ mode: 'AUTO' }, mqttManager);
         }
         // Run when DOM ready
@@ -2506,7 +2493,7 @@
         
 
         // =============================================================
-        // 20. EXPOSE TO GLOBAL (untuk debugging)
+        // 20. EXPOSE TO GLOBAL (untuk debugging) 
         // =============================================================
         window.__state = state;
         window.__config = CONFIG;

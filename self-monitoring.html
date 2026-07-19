@@ -1275,15 +1275,22 @@
         }
 
         function updateSummaryUI() {
-            const health = Math.round(state.health);
-            document.getElementById('healthScore').textContent = health + '%';
-            document.getElementById('healthScore').className = `text-3xl font-bold ${health >= 80 ? 'text-green-400' : health >= 60 ? 'text-yellow-400' : 'text-red-400'}`;
-            document.getElementById('healthLastUpdate').textContent = state.lastUpdate ? formatTime(state.lastUpdate) : '--';
+            const health = Math.round(safeNumber(state.health, 100));
+            const healthScore = document.getElementById('healthScore');
+            if (healthScore) {
+                healthScore.textContent = health + '%';
+                healthScore.className = `text-3xl font-bold ${health >= 80 ? 'text-green-400' : health >= 60 ? 'text-yellow-400' : 'text-red-400'}`;
+            }
+            const healthLastUpdate = document.getElementById('healthLastUpdate');
+            if (healthLastUpdate) healthLastUpdate.textContent = state.lastUpdate ? formatTime(state.lastUpdate) : '--';
 
             const activeAlarms = state.alarms.filter(a => a.active).length;
-            document.getElementById('activeAlarmCount').textContent = activeAlarms;
-            document.getElementById('totalErrorCount').textContent = state.errors.length;
-            document.getElementById('lastCheckTime').textContent = state.lastUpdate ? formatTime(state.lastUpdate) : '--';
+            const activeAlarmCount = document.getElementById('activeAlarmCount');
+            if (activeAlarmCount) activeAlarmCount.textContent = activeAlarms;
+            const totalErrorCount = document.getElementById('totalErrorCount');
+            if (totalErrorCount) totalErrorCount.textContent = state.errors.length;
+            const lastCheckTime = document.getElementById('lastCheckTime');
+            if (lastCheckTime) lastCheckTime.textContent = state.lastUpdate ? formatTime(state.lastUpdate) : '--';
         }
 
         function updateAllUI() {
@@ -1383,7 +1390,8 @@
         // 12. INIT
         // =============================================================
         function init() {
-            // Set initial data
+            if (initialized) return;
+            initialized = true;
             const now = new Date();
             state.lastUpdate = now;
             for (const key of Object.keys(state.components)) {
@@ -1393,9 +1401,7 @@
 
             updateAllUI();
             connectMQTT();
-            // startSimulation();
 
-            // Auto reconnect MQTT
             setInterval(() => {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
@@ -1404,11 +1410,11 @@
             }, 10000);
 
             setTimeout(() => {
-                document.getElementById('loading-screen').classList.add('hide');
+                const loadingScreen = document.getElementById('loading-screen');
+                if (loadingScreen) loadingScreen.classList.add('hide');
             }, 600);
             setTimeout(() => {
                 showToast('Self Monitoring siap', 'success');
-                // Jalankan test otomatis pertama
                 setTimeout(runSelfTest, 1500);
             }, 1000);
         }

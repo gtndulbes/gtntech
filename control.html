@@ -1180,6 +1180,8 @@
             dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
         };
 
+        let initialized = false;
+
         // =============================================================
         // 3. UTILITY
         // =============================================================
@@ -1188,6 +1190,16 @@
         function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
 
         function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+        function safeNumber(value, fallback = 0) {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : fallback;
+        }
+
+        function formatValue(value, digits = 1) {
+            const num = safeNumber(value, Number.NaN);
+            return Number.isNaN(num) ? '---' : num.toFixed(digits);
+        }
 
         // =============================================================
         // 4. TOAST
@@ -1206,6 +1218,14 @@
             container.appendChild(el);
             setTimeout(() => { el.classList.add('hide');
                 setTimeout(() => el.remove(), 400); }, duration);
+        }
+
+        function addLog(message) {
+            console.log(message);
+        }
+
+        function addNotification(message, type = 'info') {
+            showToast(message, type);
         }
 
         // =============================================================
@@ -1251,13 +1271,11 @@
                     updateStatusIndicators();
                     showToast('MQTT Terhubung', 'success');
                     addLog('MQTT Connected - Menunggu data dari ESP32');
-                    // Subscribe ke semua topik yang diperlukan
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
+                    const topics = [
+                        CONFIG.MQTT_TOPICS.ACTUATOR_STATUS,
+                        CONFIG.MQTT_TOPICS.SYSTEM_STATE,
+                    ].filter(Boolean);
+                    topics.forEach(topic => mqttClient.subscribe(topic));
                     // Kirim status dashboard online
                     mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
                         command: 'dashboard_online',
@@ -1346,6 +1364,14 @@
             setDot('sheetDot', state.sheetConnected);
         }
 
+        function initChart() {
+            return null;
+        }
+
+        function updateGauges() {
+            return null;
+        }
+
         // Saat toggle Peltier diklik
         function togglePeltier() {
             var newState = !state.peltierOn;
@@ -1391,36 +1417,52 @@
         }
 
         function updateActuatorUI() {
-            // Peltier
             const peltierToggle = document.getElementById('peltierToggle');
-            peltierToggle.className = `toggle ${state.peltierOn ? 'on' : ''}`;
-            document.getElementById('peltierStatus').textContent = state.peltierOn ? 'ON' : 'OFF';
-            document.getElementById('peltierStatus').style.color = state.peltierOn ? '#2a9d8f' : '#8892a8';
-            document.getElementById('peltierSlider').value = state.peltierPwm;
-            document.getElementById('peltierPwmDisplay').textContent = state.peltierPwm + '%';
+            if (peltierToggle) peltierToggle.className = `toggle ${state.peltierOn ? 'on' : ''}`;
+            const peltierStatus = document.getElementById('peltierStatus');
+            if (peltierStatus) {
+                peltierStatus.textContent = state.peltierOn ? 'ON' : 'OFF';
+                peltierStatus.style.color = state.peltierOn ? '#2a9d8f' : '#8892a8';
+            }
+            const peltierSlider = document.getElementById('peltierSlider');
+            if (peltierSlider) peltierSlider.value = safeNumber(state.peltierPwm, 0);
+            const peltierPwmDisplay = document.getElementById('peltierPwmDisplay');
+            if (peltierPwmDisplay) peltierPwmDisplay.textContent = `${formatValue(state.peltierPwm, 0)}%`;
 
-            // Fan
             const fanToggle = document.getElementById('fanToggle');
-            fanToggle.className = `toggle ${state.fanOn ? 'on' : ''}`;
-            document.getElementById('fanStatus').textContent = state.fanOn ? 'ON' : 'OFF';
-            document.getElementById('fanStatus').style.color = state.fanOn ? '#2a9d8f' : '#8892a8';
-            document.getElementById('fanSlider').value = state.fanPwm;
-            document.getElementById('fanPwmDisplay').textContent = state.fanPwm + '%';
+            if (fanToggle) fanToggle.className = `toggle ${state.fanOn ? 'on' : ''}`;
+            const fanStatus = document.getElementById('fanStatus');
+            if (fanStatus) {
+                fanStatus.textContent = state.fanOn ? 'ON' : 'OFF';
+                fanStatus.style.color = state.fanOn ? '#2a9d8f' : '#8892a8';
+            }
+            const fanSlider = document.getElementById('fanSlider');
+            if (fanSlider) fanSlider.value = safeNumber(state.fanPwm, 0);
+            const fanPwmDisplay = document.getElementById('fanPwmDisplay');
+            if (fanPwmDisplay) fanPwmDisplay.textContent = `${formatValue(state.fanPwm, 0)}%`;
 
-            // Cool Fan
             const coolToggle = document.getElementById('coolFanToggle');
-            coolToggle.className = `toggle ${state.coolFanOn ? 'on' : ''}`;
-            document.getElementById('coolFanStatus').textContent = state.coolFanOn ? 'ON' : 'OFF';
-            document.getElementById('coolFanStatus').style.color = state.coolFanOn ? '#2a9d8f' : '#8892a8';
-            document.getElementById('coolFanSlider').value = state.coolFanPwm;
-            document.getElementById('coolFanPwmDisplay').textContent = state.coolFanPwm + '%';
+            if (coolToggle) coolToggle.className = `toggle ${state.coolFanOn ? 'on' : ''}`;
+            const coolStatus = document.getElementById('coolFanStatus');
+            if (coolStatus) {
+                coolStatus.textContent = state.coolFanOn ? 'ON' : 'OFF';
+                coolStatus.style.color = state.coolFanOn ? '#2a9d8f' : '#8892a8';
+            }
+            const coolSlider = document.getElementById('coolFanSlider');
+            if (coolSlider) coolSlider.value = safeNumber(state.coolFanPwm, 0);
+            const coolPwmDisplay = document.getElementById('coolFanPwmDisplay');
+            if (coolPwmDisplay) coolPwmDisplay.textContent = `${formatValue(state.coolFanPwm, 0)}%`;
         }
 
         function updateSetpointUI() {
-            document.getElementById('setpointTempDisplay').textContent = state.setpointTemp.toFixed(1) + ' °C';
-            document.getElementById('setpointTempSlider').value = state.setpointTemp;
-            document.getElementById('setpointHumDisplay').textContent = state.setpointHum.toFixed(0) + ' %';
-            document.getElementById('setpointHumSlider').value = state.setpointHum;
+            const tempDisplay = document.getElementById('setpointTempDisplay');
+            if (tempDisplay) tempDisplay.textContent = `${formatValue(state.setpointTemp, 1)} °C`;
+            const tempSlider = document.getElementById('setpointTempSlider');
+            if (tempSlider) tempSlider.value = safeNumber(state.setpointTemp, 27.5);
+            const humDisplay = document.getElementById('setpointHumDisplay');
+            if (humDisplay) humDisplay.textContent = `${formatValue(state.setpointHum, 0)} %`;
+            const humSlider = document.getElementById('setpointHumSlider');
+            if (humSlider) humSlider.value = safeNumber(state.setpointHum, 75);
         }
 
         function updateAllUI() {
@@ -1723,7 +1765,9 @@
         // 14. INIT
         // =============================================================
         function init() {
-            // Set default state
+            if (initialized) return;
+            initialized = true;
+
             state.mode = 'AUTO';
             state.peltierOn = false;
             state.peltierPwm = 0;
@@ -1736,24 +1780,17 @@
 
             updateAllUI();
             connectMQTT();
-            // startSimulation();
-
-            // Init chart (kosong dulu)
             initChart();
-
-            // Init gauges (tampilkan 0 atau --)
             updateGauges();
 
-                // Add startup messages
             addNotification('Menunggu data dari ESP32...', 'info');
             addLog('Sistem menunggu koneksi MQTT');
 
-            // Hide loading screen
             setTimeout(() => {
-                document.getElementById('loading-screen').classList.add('hide');
+                const loadingScreen = document.getElementById('loading-screen');
+                if (loadingScreen) loadingScreen.classList.add('hide');
             }, 800);
 
-            // Auto refresh status
             setInterval(() => {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
@@ -1761,18 +1798,15 @@
                 updateStatusIndicators();
             }, 10000);
 
-            // Publish status periodically (jika MQTT terhubung)
             setInterval(() => {
                 if (state.mqttConnected && mqttClient) {
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
                         dashboard: 'online',
                         timestamp: new Date().toISOString(),
-                        health: state.health,
                     }));
                 }
             }, 15000);
 
-            // Jika mode AUTO, disable manual controls
             updateModeUI();
         }
 

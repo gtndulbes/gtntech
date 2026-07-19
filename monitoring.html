@@ -1086,6 +1086,8 @@
             dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
         };
 
+        let initialized = false;
+
         // =============================================================
         // 3. UTILITY
         // =============================================================
@@ -1096,6 +1098,16 @@
         function randomBetween(min, max) { return Math.random() * (max - min) + min; }
 
         function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+        function safeNumber(value, fallback = 0) {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : fallback;
+        }
+
+        function formatValue(value, digits = 1) {
+            const num = safeNumber(value, Number.NaN);
+            return Number.isNaN(num) ? '---' : num.toFixed(digits);
+        }
 
         // =============================================================
         // 4. TOAST
@@ -1114,6 +1126,14 @@
             container.appendChild(el);
             setTimeout(() => { el.classList.add('hide');
                 setTimeout(() => el.remove(), 400); }, duration);
+        }
+
+        function addLog(message) {
+            console.log(message);
+        }
+
+        function addNotification(message, type = 'info') {
+            showToast(message, type);
         }
 
         // =============================================================
@@ -1202,27 +1222,21 @@
         }
 
         function handleMqttMessage(topic, data) {
+            let needUpdate = false;
             switch (topic) {
                 case CONFIG.MQTT_TOPICS.SENSOR_SHT31:
                     if (data.temperature !== undefined) state.temp = data.temperature;
                     if (data.humidity !== undefined) state.hum = data.humidity;
                     updateStats('temp', state.temp);
                     updateStats('hum', state.hum);
-                    updateSensorDisplay();
-                    updateGauges();
-                    updateChartData();
-                    updateTable();
+                    needUpdate = true;
                     break;
                 case CONFIG.MQTT_TOPICS.SENSOR_MQ135:
                     if (data.nh3 !== undefined) state.nh3 = data.nh3;
                     updateStats('nh3', state.nh3);
-                    updateSensorDisplay();
-                    updateGauges();
-                    updateChartData();
-                    updateTable();
+                    needUpdate = true;
                     break;
                 case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
-                    // Update status aktuator dari ESP
                     if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
                     if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
                     if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
@@ -1231,20 +1245,16 @@
                     if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
                     if (data.mode !== undefined) state.mode = data.mode;
                     needUpdate = true;
-                    updateChartData();
-                    updateTable();
                     break;
                 case CONFIG.MQTT_TOPICS.SYSTEM_STATE:
                     SyncModule.handleStateMessage(topic, data);
-                    // Setelah menerima state, update UI
-                    updateAllUI();
+                    needUpdate = true;
                     break;
                 default:
                     break;
             }
 
             if (needUpdate) {
-                // Tandai bahwa kita sudah menerima data
                 state.dataReceived = true;
                 updateSensorDisplay();
                 updateActuatorDisplay();
@@ -1252,6 +1262,7 @@
                 updateHealthDisplay();
                 updateStatusIndicators();
                 updateChartData();
+                updateTable();
             }
         }
 
@@ -1312,27 +1323,29 @@
         // 8. STATISTICS
         // =============================================================
         function updateStats(key, val) {
+            const numericValue = safeNumber(val, Number.NaN);
+            if (Number.isNaN(numericValue)) return;
             if (key === 'temp') {
-                state.tempSum += val;
+                state.tempSum += numericValue;
                 state.tempCount++;
-                if (val < state.tempMin) state.tempMin = val;
-                if (val > state.tempMax) state.tempMax = val;
+                if (numericValue < state.tempMin) state.tempMin = numericValue;
+                if (numericValue > state.tempMax) state.tempMax = numericValue;
                 document.getElementById('tempMin').textContent = state.tempMin.toFixed(1);
                 document.getElementById('tempMax').textContent = state.tempMax.toFixed(1);
                 document.getElementById('tempAvg').textContent = (state.tempSum / state.tempCount).toFixed(1);
             } else if (key === 'hum') {
-                state.humSum += val;
+                state.humSum += numericValue;
                 state.humCount++;
-                if (val < state.humMin) state.humMin = val;
-                if (val > state.humMax) state.humMax = val;
+                if (numericValue < state.humMin) state.humMin = numericValue;
+                if (numericValue > state.humMax) state.humMax = numericValue;
                 document.getElementById('humMin').textContent = state.humMin.toFixed(1);
                 document.getElementById('humMax').textContent = state.humMax.toFixed(1);
                 document.getElementById('humAvg').textContent = (state.humSum / state.humCount).toFixed(1);
             } else if (key === 'nh3') {
-                state.nh3Sum += val;
+                state.nh3Sum += numericValue;
                 state.nh3Count++;
-                if (val < state.nh3Min) state.nh3Min = val;
-                if (val > state.nh3Max) state.nh3Max = val;
+                if (numericValue < state.nh3Min) state.nh3Min = numericValue;
+                if (numericValue > state.nh3Max) state.nh3Max = numericValue;
                 document.getElementById('nh3Min').textContent = state.nh3Min.toFixed(1);
                 document.getElementById('nh3Max').textContent = state.nh3Max.toFixed(1);
                 document.getElementById('nh3Avg').textContent = (state.nh3Sum / state.nh3Count).toFixed(1);
@@ -1343,40 +1356,72 @@
         // 9. UI UPDATE
         // =============================================================
         function updateSensorDisplay() {
-            const t = state.temp,
-                h = state.hum,
-                n = state.nh3;
+            const t = safeNumber(state.temp, Number.NaN);
+            const h = safeNumber(state.hum, Number.NaN);
+            const n = safeNumber(state.nh3, Number.NaN);
 
-                // Jika data belum datang, tampilkan "---"
-            const tempDisplay = (t !== null && t !== undefined) ? t.toFixed(1) : '---';
-            const humDisplay = (h !== null && h !== undefined) ? h.toFixed(1) : '---';
-            const nh3Display = (n !== null && n !== undefined) ? n.toFixed(1) : '---';
+            const tempDisplay = document.getElementById('gaugeTempVal');
+            if (tempDisplay) tempDisplay.textContent = Number.isNaN(t) ? '---' : t.toFixed(1);
+            const humDisplay = document.getElementById('gaugeHumVal');
+            if (humDisplay) humDisplay.textContent = Number.isNaN(h) ? '---' : h.toFixed(1);
+            const nh3Display = document.getElementById('gaugeNh3Val');
+            if (nh3Display) nh3Display.textContent = Number.isNaN(n) ? '---' : n.toFixed(1);
 
-            document.getElementById('gaugeTempVal').textContent = t.toFixed(1);
-            document.getElementById('gaugeHumVal').textContent = h.toFixed(1);
-            document.getElementById('gaugeNh3Val').textContent = n.toFixed(1);
+            const tempProgress = document.getElementById('tempProgress');
+            if (tempProgress) {
+                const tempPct = Number.isNaN(t) ? 0 : ((t - 24) / (29 - 24)) * 100;
+                tempProgress.style.width = clamp(tempPct, 0, 100) + '%';
+                tempProgress.style.background = Number.isNaN(t) ? '#2a9d8f' : t > 29 ? '#e74c3c' : t < 26 ? '#f1c40f' : '#2a9d8f';
+            }
+            const humProgress = document.getElementById('humProgress');
+            if (humProgress) {
+                const humPct = Number.isNaN(h) ? 0 : ((h - 60) / (90 - 60)) * 100;
+                humProgress.style.width = clamp(humPct, 0, 100) + '%';
+                humProgress.style.background = Number.isNaN(h) ? '#3498db' : h > 90 ? '#e74c3c' : h < 60 ? '#f1c40f' : '#3498db';
+            }
+            const nh3Progress = document.getElementById('nh3Progress');
+            if (nh3Progress) {
+                const nh3Pct = Number.isNaN(n) ? 0 : (n / 25) * 100;
+                nh3Progress.style.width = clamp(nh3Pct, 0, 100) + '%';
+                nh3Progress.style.background = Number.isNaN(n) ? '#f1c40f' : n > 25 ? '#e74c3c' : n > 15 ? '#f1c40f' : '#2a9d8f';
+            }
 
-            // Progress
-            const tempPct = ((t - 24) / (29 - 24)) * 100;
-            document.getElementById('tempProgress').style.width = clamp(tempPct, 0, 100) + '%';
-            document.getElementById('tempProgress').style.background = t > 29 ? '#e74c3c' : t < 26 ? '#f1c40f' : '#2a9d8f';
-            const humPct = ((h - 60) / (90 - 60)) * 100;
-            document.getElementById('humProgress').style.width = clamp(humPct, 0, 100) + '%';
-            document.getElementById('humProgress').style.background = h > 90 ? '#e74c3c' : h < 60 ? '#f1c40f' : '#3498db';
-            const nh3Pct = (n / 25) * 100;
-            document.getElementById('nh3Progress').style.width = clamp(nh3Pct, 0, 100) + '%';
-            document.getElementById('nh3Progress').style.background = n > 25 ? '#e74c3c' : n > 15 ? '#f1c40f' : '#2a9d8f';
-
-            // Badges
             const tempBadge = document.getElementById('tempBadge');
-            tempBadge.textContent = t > 29 ? 'Panas' : t < 26 ? 'Dingin' : 'Normal';
-            tempBadge.className = `status-badge ${t > 29 ? 'danger' : t < 26 ? 'warning' : 'normal'}`;
+            if (tempBadge) {
+                tempBadge.textContent = Number.isNaN(t) ? 'Menunggu' : t > 29 ? 'Panas' : t < 26 ? 'Dingin' : 'Normal';
+                tempBadge.className = `status-badge ${Number.isNaN(t) ? 'normal' : t > 29 ? 'danger' : t < 26 ? 'warning' : 'normal'}`;
+            }
             const humBadge = document.getElementById('humBadge');
-            humBadge.textContent = h > 90 ? 'Basah' : h < 60 ? 'Kering' : 'Normal';
-            humBadge.className = `status-badge ${h > 90 ? 'danger' : h < 60 ? 'warning' : 'normal'}`;
+            if (humBadge) {
+                humBadge.textContent = Number.isNaN(h) ? 'Menunggu' : h > 90 ? 'Basah' : h < 60 ? 'Kering' : 'Normal';
+                humBadge.className = `status-badge ${Number.isNaN(h) ? 'normal' : h > 90 ? 'danger' : h < 60 ? 'warning' : 'normal'}`;
+            }
             const nh3Badge = document.getElementById('nh3Badge');
-            nh3Badge.textContent = n > 25 ? 'Berbahaya' : n > 15 ? 'Waspada' : 'Normal';
-            nh3Badge.className = `status-badge ${n > 25 ? 'danger' : n > 15 ? 'warning' : 'normal'}`;
+            if (nh3Badge) {
+                nh3Badge.textContent = Number.isNaN(n) ? 'Menunggu' : n > 25 ? 'Berbahaya' : n > 15 ? 'Waspada' : 'Normal';
+                nh3Badge.className = `status-badge ${Number.isNaN(n) ? 'normal' : n > 25 ? 'danger' : n > 15 ? 'warning' : 'normal'}`;
+            }
+        }
+
+        function updateActuatorDisplay() {
+            const peltierEl = document.getElementById('peltierStatus');
+            if (peltierEl) peltierEl.textContent = `${state.peltierOn ? 'ON' : 'OFF'} · ${formatValue(state.peltierPwm, 0)}%`;
+            const fanEl = document.getElementById('fanStatus');
+            if (fanEl) fanEl.textContent = `${state.fanOn ? 'ON' : 'OFF'} · ${formatValue(state.fanPwm, 0)}%`;
+            const coolEl = document.getElementById('coolFanStatus');
+            if (coolEl) coolEl.textContent = `${state.coolFanOn ? 'ON' : 'OFF'} · ${formatValue(state.coolFanPwm, 0)}%`;
+        }
+
+        function updateHealthDisplay() {
+            const healthEl = document.getElementById('healthValue');
+            if (healthEl) healthEl.textContent = `${formatValue(safeNumber(state.health, 100), 0)}%`;
+        }
+
+        function updateAllUI() {
+            updateSensorDisplay();
+            updateActuatorDisplay();
+            updateHealthDisplay();
+            updateStatusIndicators();
         }
 
         function updateStatusIndicators() {
@@ -1588,32 +1633,20 @@
         // =============================================================
         function updateTable() {
             const tbody = document.getElementById('dataTableBody');
+            if (!tbody) return;
             const now = formatTime();
-            const row = `
-            <tr>
-              <td>${now}</td>
-              <td>${state.temp.toFixed(1)}</td>
-              <td>${state.hum.toFixed(1)}</td>
-              <td>${state.nh3.toFixed(1)}</td>
-              <td>${state.peltierPwm.toFixed(0)}</td>
-              <td>${state.fanPwm.toFixed(0)}</td>
-              <td>${state.coolFanPwm.toFixed(0)}</td>
-              <td>${state.mode}</td>
-            </tr>
-          `;
-            state.tableData.unshift({ time: now, temp: state.temp, hum: state.hum, nh3: state.nh3, peltier: state
-                    .peltierPwm, fan: state.fanPwm, cool: state.coolFanPwm, mode: state.mode });
+            state.tableData.unshift({ time: now, temp: state.temp, hum: state.hum, nh3: state.nh3, peltier: state.peltierPwm, fan: state.fanPwm, cool: state.coolFanPwm, mode: state.mode });
             if (state.tableData.length > 20) state.tableData.pop();
             tbody.innerHTML = state.tableData.map(d => `
             <tr>
               <td>${d.time}</td>
-              <td>${d.temp.toFixed(1)}</td>
-              <td>${d.hum.toFixed(1)}</td>
-              <td>${d.nh3.toFixed(1)}</td>
-              <td>${d.peltier.toFixed(0)}</td>
-              <td>${d.fan.toFixed(0)}</td>
-              <td>${d.cool.toFixed(0)}</td>
-              <td>${d.mode}</td>
+              <td>${formatValue(d.temp, 1)}</td>
+              <td>${formatValue(d.hum, 1)}</td>
+              <td>${formatValue(d.nh3, 1)}</td>
+              <td>${formatValue(d.peltier, 0)}</td>
+              <td>${formatValue(d.fan, 0)}</td>
+              <td>${formatValue(d.cool, 0)}</td>
+              <td>${d.mode || 'AUTO'}</td>
             </tr>
           `).join('');
         }
@@ -1633,6 +1666,8 @@
         // 14. INIT
         // =============================================================
         function init() {
+            if (initialized) return;
+            initialized = true;
             state.temp = null;
             state.hum = null;
             state.nh3 = null;
@@ -1647,29 +1682,25 @@
             updateStatusIndicators();
             initChart();
             connectMQTT();
-            // startSimulation();
 
-            // Inisialisasi statistik
-            document.getElementById('tempMin').textContent = state.temp.toFixed(1);
-            document.getElementById('tempMax').textContent = state.temp.toFixed(1);
-            document.getElementById('tempAvg').textContent = state.temp.toFixed(1);
-            document.getElementById('humMin').textContent = state.hum.toFixed(1);
-            document.getElementById('humMax').textContent = state.hum.toFixed(1);
-            document.getElementById('humAvg').textContent = state.hum.toFixed(1);
-            document.getElementById('nh3Min').textContent = state.nh3.toFixed(1);
-            document.getElementById('nh3Max').textContent = state.nh3.toFixed(1);
-            document.getElementById('nh3Avg').textContent = state.nh3.toFixed(1);
+            document.getElementById('tempMin').textContent = formatValue(state.temp, 1);
+            document.getElementById('tempMax').textContent = formatValue(state.temp, 1);
+            document.getElementById('tempAvg').textContent = formatValue(state.temp, 1);
+            document.getElementById('humMin').textContent = formatValue(state.hum, 1);
+            document.getElementById('humMax').textContent = formatValue(state.hum, 1);
+            document.getElementById('humAvg').textContent = formatValue(state.hum, 1);
+            document.getElementById('nh3Min').textContent = formatValue(state.nh3, 1);
+            document.getElementById('nh3Max').textContent = formatValue(state.nh3, 1);
+            document.getElementById('nh3Avg').textContent = formatValue(state.nh3, 1);
 
-            // Add startup messages
             addNotification('Menunggu data dari ESP32...', 'info');
             addLog('Sistem menunggu koneksi MQTT');
 
-            // Hide loading screen
             setTimeout(() => {
-                document.getElementById('loading-screen').classList.add('hide');
+                const loadingScreen = document.getElementById('loading-screen');
+                if (loadingScreen) loadingScreen.classList.add('hide');
             }, 800);
 
-            // Auto refresh status
             setInterval(() => {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
@@ -1677,7 +1708,6 @@
                 updateStatusIndicators();
             }, 10000);
 
-            // Publish status periodically (jika MQTT terhubung)
             setInterval(() => {
                 if (state.mqttConnected && mqttClient) {
                     mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
@@ -1688,26 +1718,23 @@
                 }
             }, 15000);
 
-            // Subscribe ke topik sync
-            SyncModule.subscribeState(mqttManager);
-
-            // Set callback untuk perubahan state dari sync
-            SyncModule.setOnStateChange(function(syncState) {
-                if (syncState.temp !== undefined) state.temp = syncState.temp;
-                if (syncState.hum !== undefined) state.hum = syncState.hum;
-                if (syncState.nh3 !== undefined) state.nh3 = syncState.nh3;
-                if (syncState.peltierOn !== undefined) state.peltierOn = syncState.peltierOn;
-                if (syncState.peltierPwm !== undefined) state.peltierPwm = syncState.peltierPwm;
-                if (syncState.fanOn !== undefined) state.fanOn = syncState.fanOn;
-                if (syncState.fanPwm !== undefined) state.fanPwm = syncState.fanPwm;
-                if (syncState.coolFanOn !== undefined) state.coolFanOn = syncState.coolFanOn;
-                if (syncState.coolFanPwm !== undefined) state.coolFanPwm = syncState.coolFanPwm;
-                if (syncState.mode !== undefined) state.mode = syncState.mode;
-                updateAllUI();
-            });
-
-            // Sinkronisasi awal
-            SyncModule.updateLocalState({ mode: 'AUTO' }, mqttManager);
+            if (typeof SyncModule !== 'undefined') {
+                SyncModule.subscribeState(mqttManager);
+                SyncModule.setOnStateChange(function(syncState) {
+                    if (syncState.temp !== undefined) state.temp = syncState.temp;
+                    if (syncState.hum !== undefined) state.hum = syncState.hum;
+                    if (syncState.nh3 !== undefined) state.nh3 = syncState.nh3;
+                    if (syncState.peltierOn !== undefined) state.peltierOn = syncState.peltierOn;
+                    if (syncState.peltierPwm !== undefined) state.peltierPwm = syncState.peltierPwm;
+                    if (syncState.fanOn !== undefined) state.fanOn = syncState.fanOn;
+                    if (syncState.fanPwm !== undefined) state.fanPwm = syncState.fanPwm;
+                    if (syncState.coolFanOn !== undefined) state.coolFanOn = syncState.coolFanOn;
+                    if (syncState.coolFanPwm !== undefined) state.coolFanPwm = syncState.coolFanPwm;
+                    if (syncState.mode !== undefined) state.mode = syncState.mode;
+                    updateAllUI();
+                });
+                SyncModule.updateLocalState({ mode: 'AUTO' }, mqttManager);
+            }
         }
 
         if (document.readyState === 'loading') {

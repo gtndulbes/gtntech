@@ -1,0 +1,1554 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fuzzy PID - IoT Kandang Ulat Hongkong</title>
+    <script src="https://cdn.tailwindcss.com">
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js">
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
+    </script>
+    <script src="assets/js/mqtt-config.js">
+    </script>
+    <style>
+        /* ===== RESET & BASE ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #0b0e14;
+            color: #e8edf5;
+            overflow-x: hidden;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1a1f2b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2a9d8f;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #21867a;
+        }
+
+        /* ===== GLASSMORPHISM ===== */
+        .glass {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+        }
+
+        /* ===== SIDEBAR ===== */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 76px;
+            height: 100vh;
+            background: rgba(11, 14, 20, 0.92);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            z-index: 1000;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: 16px 0;
+        }
+        .sidebar:hover {
+            width: 240px;
+        }
+        .sidebar .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0 18px 24px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 16px;
+            white-space: nowrap;
+        }
+        .sidebar .logo i {
+            font-size: 28px;
+            color: #2a9d8f;
+            min-width: 40px;
+            text-align: center;
+        }
+        .sidebar .logo span {
+            font-size: 18px;
+            font-weight: 700;
+            color: #e8edf5;
+            opacity: 0;
+            transition: opacity 0.25s;
+        }
+        .sidebar:hover .logo span {
+            opacity: 1;
+        }
+        .sidebar .nav {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 8px;
+        }
+        .sidebar .nav a {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 14px;
+            margin-bottom: 4px;
+            border-radius: 12px;
+            color: #8892a8;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            white-space: nowrap;
+            position: relative;
+        }
+        .sidebar .nav a i {
+            font-size: 20px;
+            min-width: 36px;
+            text-align: center;
+        }
+        .sidebar .nav a span {
+            opacity: 0;
+            transition: opacity 0.25s;
+        }
+        .sidebar:hover .nav a span {
+            opacity: 1;
+        }
+        .sidebar .nav a:hover {
+            background: rgba(42, 157, 143, 0.15);
+            color: #e8edf5;
+        }
+        .sidebar .nav a.active {
+            background: rgba(42, 157, 143, 0.20);
+            color: #2a9d8f;
+            box-shadow: inset 3px 0 0 #2a9d8f;
+        }
+
+        /* ===== MAIN CONTENT ===== */
+        .main-content {
+            margin-left: 76px;
+            min-height: 100vh;
+            padding: 20px 24px 40px;
+            transition: margin-left 0.3s;
+        }
+
+        /* ===== TOP NAVBAR ===== */
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding: 12px 20px;
+            background: rgba(11, 14, 20, 0.7);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            margin-bottom: 24px;
+        }
+        .topbar .left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .topbar .left .menu-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: #e8edf5;
+            font-size: 22px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+        .topbar .left .menu-toggle:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .topbar .left h1 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .topbar .left h1 small {
+            font-weight: 400;
+            font-size: 13px;
+            color: #8892a8;
+        }
+        .topbar .right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .topbar .right .status-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #8892a8;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 4px 12px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .topbar .right .status-item .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .topbar .right .status-item .dot.online {
+            background: #2a9d8f;
+            box-shadow: 0 0 8px rgba(42, 157, 143, 0.5);
+        }
+        .topbar .right .status-item .dot.offline {
+            background: #e74c3c;
+            box-shadow: 0 0 8px rgba(231, 76, 60, 0.4);
+        }
+        .topbar .right .clock {
+            font-size: 15px;
+            font-weight: 500;
+            color: #e8edf5;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 4px 14px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            font-variant-numeric: tabular-nums;
+        }
+        .topbar .right .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2a9d8f, #1a6b62);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            color: #fff;
+            cursor: pointer;
+            border: 2px solid rgba(42, 157, 143, 0.3);
+        }
+
+        /* ===== CARDS ===== */
+        .card {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 16px;
+            padding: 20px;
+            transition: all 0.25s;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+        }
+        .card:hover {
+            border-color: rgba(42, 157, 143, 0.2);
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.35);
+            transform: translateY(-2px);
+        }
+        .card .card-title {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #8892a8;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .card .card-title i {
+            font-size: 16px;
+            color: #2a9d8f;
+        }
+
+        /* ===== FUZZY PARAMETER DISPLAY ===== */
+        .param-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .param-item {
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 10px;
+            padding: 12px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .param-item .label {
+            font-size: 11px;
+            color: #8892a8;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .param-item .value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #2a9d8f;
+            line-height: 1.2;
+        }
+        .param-item .value .unit {
+            font-size: 14px;
+            font-weight: 400;
+            color: #8892a8;
+            margin-left: 4px;
+        }
+        .param-item .value.warning {
+            color: #f1c40f;
+        }
+        .param-item .value.danger {
+            color: #e74c3c;
+        }
+
+        /* ===== RULE LIST ===== */
+        .rule-item {
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.02);
+            border-left: 3px solid #2a9d8f;
+            margin-bottom: 4px;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .rule-item .rule-text {
+            color: #e8edf5;
+        }
+        .rule-item .rule-weight {
+            font-size: 12px;
+            color: #8892a8;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 2px 10px;
+            border-radius: 20px;
+        }
+        .rule-item.active {
+            border-left-color: #2a9d8f;
+            background: rgba(42, 157, 143, 0.06);
+        }
+        .rule-item.active .rule-text {
+            color: #2a9d8f;
+        }
+
+        /* ===== MEMBERSHIP FUNCTION DISPLAY ===== */
+        .mf-container {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .mf-item {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            transition: all 0.3s;
+        }
+        .mf-item.active {
+            background: rgba(42, 157, 143, 0.15);
+            border-color: #2a9d8f;
+            color: #2a9d8f;
+            box-shadow: 0 0 20px rgba(42, 157, 143, 0.1);
+        }
+
+        /* ===== CHART ===== */
+        .chart-container {
+            position: relative;
+            height: 200px;
+            width: 100%;
+        }
+        @media (max-width: 640px) {
+            .chart-container {
+                height: 150px;
+            }
+        }
+
+        /* ===== TOAST ===== */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9998;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 380px;
+            width: 100%;
+        }
+        .toast {
+            padding: 14px 18px;
+            border-radius: 12px;
+            background: rgba(20, 25, 35, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideInRight 0.4s ease;
+            font-size: 13px;
+        }
+        .toast .icon {
+            font-size: 18px;
+        }
+        .toast .icon.success {
+            color: #2a9d8f;
+        }
+        .toast .icon.error {
+            color: #e74c3c;
+        }
+        .toast .icon.warning {
+            color: #f1c40f;
+        }
+        .toast .icon.info {
+            color: #3498db;
+        }
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(60px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        .toast.hide {
+            opacity: 0;
+            transform: translateX(60px);
+            transition: 0.3s;
+        }
+
+        /* ===== BREADCRUMB ===== */
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #8892a8;
+            flex-wrap: wrap;
+        }
+        .breadcrumb a {
+            color: #8892a8;
+            text-decoration: none;
+            transition: 0.2s;
+        }
+        .breadcrumb a:hover {
+            color: #2a9d8f;
+        }
+        .breadcrumb .sep {
+            color: #3a4050;
+        }
+        .breadcrumb .current {
+            color: #e8edf5;
+        }
+
+        /* ===== LOADING ===== */
+        #loading-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: #0b0e14;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.8s, visibility 0.8s;
+        }
+        #loading-screen.hide {
+            opacity: 0;
+            visibility: hidden;
+        }
+        #loading-screen .spinner {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: 4px solid rgba(42, 157, 143, 0.15);
+            border-top-color: #2a9d8f;
+            animation: spin-slow 1s linear infinite;
+        }
+        #loading-screen p {
+            margin-top: 20px;
+            color: #8892a8;
+            font-weight: 500;
+            letter-spacing: 1px;
+        }
+        @keyframes spin-slow {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 0;
+                padding: 0;
+                overflow: hidden;
+                border-right: none;
+            }
+            .sidebar.open {
+                width: 240px;
+                padding: 16px 0;
+                overflow-y: auto;
+            }
+            .main-content {
+                margin-left: 0;
+            }
+            .topbar .left .menu-toggle {
+                display: block;
+            }
+            .topbar .left h1 small {
+                display: none;
+            }
+        }
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 12px 12px 32px;
+            }
+            .topbar {
+                padding: 10px 14px;
+            }
+            .topbar .right .status-item span {
+                display: none;
+            }
+            .topbar .right .clock {
+                font-size: 13px;
+                padding: 2px 10px;
+            }
+            .param-item .value {
+                font-size: 20px;
+            }
+            .param-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        @media (max-width: 480px) {
+            .topbar .left h1 {
+                font-size: 15px;
+            }
+            .topbar .right .status-item {
+                padding: 2px 8px;
+                font-size: 10px;
+            }
+            .card {
+                padding: 14px;
+            }
+        }
+
+        /* Utility */
+        .flex-wrap {
+            flex-wrap: wrap;
+        }
+        .items-center {
+            align-items: center;
+        }
+        .justify-between {
+            justify-content: space-between;
+        }
+        .text-center {
+            text-align: center;
+        }
+        .w-full {
+            width: 100%;
+        }
+        .gap-2 {
+            gap: 8px;
+        }
+        .gap-3 {
+            gap: 12px;
+        }
+        .gap-4 {
+            gap: 16px;
+        }
+        .gap-6 {
+            gap: 24px;
+        }
+        .grid-cols-1 {
+            grid-template-columns: 1fr;
+        }
+        .grid-cols-2 {
+            grid-template-columns: 1fr 1fr;
+        }
+        .grid-cols-3 {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+        .mt-2 {
+            margin-top: 8px;
+        }
+        .mt-3 {
+            margin-top: 12px;
+        }
+        .mt-4 {
+            margin-top: 16px;
+        }
+        .mt-6 {
+            margin-top: 24px;
+        }
+        .mb-2 {
+            margin-bottom: 8px;
+        }
+        .mb-3 {
+            margin-bottom: 12px;
+        }
+        .mb-4 {
+            margin-bottom: 16px;
+        }
+        .mb-6 {
+            margin-bottom: 24px;
+        }
+        .text-xs {
+            font-size: 11px;
+        }
+        .text-sm {
+            font-size: 13px;
+        }
+        .text-base {
+            font-size: 15px;
+        }
+        .text-lg {
+            font-size: 17px;
+        }
+        .text-xl {
+            font-size: 20px;
+        }
+        .text-2xl {
+            font-size: 24px;
+        }
+        .font-medium {
+            font-weight: 500;
+        }
+        .font-semibold {
+            font-weight: 600;
+        }
+        .font-bold {
+            font-weight: 700;
+        }
+        .opacity-60 {
+            opacity: 0.6;
+        }
+        .opacity-80 {
+            opacity: 0.8;
+        }
+        .flex {
+            display: flex;
+        }
+        .grid {
+            display: grid;
+        }
+        @media (min-width: 640px) {
+            .sm\:grid-cols-2 {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        @media (min-width: 768px) {
+            .md\:grid-cols-2 {
+                grid-template-columns: 1fr 1fr;
+            }
+            .md\:grid-cols-3 {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            .md\:col-span-2 {
+                grid-column: span 2;
+            }
+        }
+        @media (min-width: 1024px) {
+            .lg\:grid-cols-3 {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            .lg\:grid-cols-4 {
+                grid-template-columns: 1fr 1fr 1fr 1fr;
+            }
+        }
+
+        .transition-all {
+            transition: all 0.25s ease;
+        }
+        .cursor-pointer {
+            cursor: pointer;
+        }
+        .rounded-full {
+            border-radius: 9999px;
+        }
+        .border {
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .bg-white\/5 {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .bg-white\/10 {
+            background: rgba(255, 255, 255, 0.10);
+        }
+        .text-gray-400 {
+            color: #8892a8;
+        }
+        .text-gray-500 {
+            color: #6a7288;
+        }
+        .text-white {
+            color: #e8edf5;
+        }
+        .text-green-400 {
+            color: #2a9d8f;
+        }
+        .text-yellow-400 {
+            color: #f1c40f;
+        }
+        .text-red-400 {
+            color: #e74c3c;
+        }
+        .text-blue-400 {
+            color: #3498db;
+        }
+        .bg-green-500\/20 {
+            background: rgba(42, 157, 143, 0.2);
+        }
+        .bg-yellow-500\/20 {
+            background: rgba(241, 196, 15, 0.2);
+        }
+        .bg-red-500\/20 {
+            background: rgba(231, 76, 60, 0.2);
+        }
+        .border-green-500\/20 {
+            border-color: rgba(42, 157, 143, 0.2);
+        }
+        .hover\:bg-white\/10:hover {
+            background: rgba(255, 255, 255, 0.10);
+        }
+        .hidden {
+            display: none !important;
+        }
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .fade-in-up {
+            animation: fadeInUp 0.5s ease forwards;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== LOADING SCREEN ===== -->
+    <div id="loading-screen">
+        <div class="spinner"></div>
+        <p>⏳ Memuat Fuzzy PID ...</p>
+    </div>
+
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="sidebar" id="sidebar">
+        <div class="logo">
+            <i class="fas fa-bug"></i>
+            <span>IoT Ulat</span>
+        </div>
+        <nav class="nav">
+            <a href="index.html"><i class="fas fa-home"></i><span>Dashboard</span></a>
+            <a href="monitoring.html"><i class="fas fa-chart-line"></i><span>Monitoring</span></a>
+            <a href="control.html"><i class="fas fa-sliders-h"></i><span>Kontrol</span></a>
+            <a href="fuzzy.html" class="active"><i class="fas fa-brain"></i><span>Fuzzy PID</span></a>
+            <a href="self-monitoring.html"><i class="fas fa-heartbeat"></i><span>Self Monitoring</span></a>
+            <a href="history.html"><i class="fas fa-database"></i><span>Data Logger</span></a>
+            <a href="settings.html"><i class="fas fa-cog"></i><span>Settings</span></a>
+            <a href="about.html"><i class="fas fa-user"></i><span>About</span></a>
+        </nav>
+        <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:#4a5268;text-align:center;">
+            v2.0.0
+        </div>
+    </aside>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <div class="main-content" id="mainContent">
+
+        <!-- ===== TOPBAR ===== -->
+        <header class="topbar">
+            <div class="left">
+                <button class="menu-toggle" id="menuToggle" aria-label="Toggle Sidebar">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <h1>
+                    🧠 Fuzzy PID
+                    <small>— Kontrol Adaptif</small>
+                </h1>
+            </div>
+            <div class="right">
+                <div class="status-item">
+                    <span class="dot online" id="wifiDot"></span>
+                    <span>WiFi</span>
+                </div>
+                <div class="status-item">
+                    <span class="dot online" id="mqttDot"></span>
+                    <span>MQTT</span>
+                </div>
+                <div class="status-item">
+                    <span class="dot online" id="sheetDot"></span>
+                    <span>Spreadsheet</span>
+                </div>
+                <div class="clock" id="clock">--:--:--</div>
+                <div class="avatar">MR</div>
+            </div>
+        </header>
+
+        <!-- ===== BREADCRUMB ===== -->
+        <div class="breadcrumb mb-4">
+            <a href="index.html">🏠</a>
+            <span class="sep">/</span>
+            <span class="current">Fuzzy PID</span>
+        </div>
+
+        <!-- ===== PARAMETER GRID ===== -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+
+            <!-- Setpoint -->
+            <div class="card fade-in-up" style="animation-delay:0.05s;">
+                <div class="card-title">
+                    <span><i class="fas fa-bullseye mr-2"></i>Setpoint</span>
+                </div>
+                <div class="param-grid">
+                    <div class="param-item">
+                        <div class="label">Suhu</div>
+                        <div class="value" id="setpointTempDisplay">27.5 <span class="unit">°C</span></div>
+                    </div>
+                    <div class="param-item">
+                        <div class="label">Kelembaban</div>
+                        <div class="value" id="setpointHumDisplay">75 <span class="unit">%</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error & Delta Error -->
+            <div class="card fade-in-up" style="animation-delay:0.10s;">
+                <div class="card-title">
+                    <span><i class="fas fa-exclamation-triangle mr-2"></i>Error</span>
+                </div>
+                <div class="param-grid">
+                    <div class="param-item">
+                        <div class="label">Error (e)</div>
+                        <div class="value" id="errorDisplay">0.0 <span class="unit">°C</span></div>
+                    </div>
+                    <div class="param-item">
+                        <div class="label">Δ Error (de/dt)</div>
+                        <div class="value" id="deltaErrorDisplay">0.0 <span class="unit">°C/s</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PID Parameters -->
+            <div class="card fade-in-up" style="animation-delay:0.15s;">
+                <div class="card-title">
+                    <span><i class="fas fa-sliders-h mr-2"></i>Parameter PID</span>
+                </div>
+                <div class="param-grid">
+                    <div class="param-item">
+                        <div class="label">Kp</div>
+                        <div class="value" id="kpDisplay">2.0</div>
+                    </div>
+                    <div class="param-item">
+                        <div class="label">Ki</div>
+                        <div class="value" id="kiDisplay">0.5</div>
+                    </div>
+                    <div class="param-item">
+                        <div class="label">Kd</div>
+                        <div class="value" id="kdDisplay">0.1</div>
+                    </div>
+                    <div class="param-item">
+                        <div class="label">Output PID</div>
+                        <div class="value" id="outputDisplay">0.0 <span class="unit">%</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== FUZZY INFERENCE DISPLAY ===== -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+
+            <!-- Rule Active -->
+            <div class="card fade-in-up" style="animation-delay:0.20s;">
+                <div class="card-title">
+                    <span><i class="fas fa-list mr-2"></i>Aturan Fuzzy Aktif</span>
+                    <span class="text-xs text-gray-400" id="ruleCount">0 aturan</span>
+                </div>
+                <div id="ruleList" style="max-height:200px;overflow-y:auto;">
+                    <div class="rule-item active">
+                        <span class="rule-text">IF error ZERO AND delta ZERO THEN Kp ZERO</span>
+                        <span class="rule-weight">1.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Membership Functions -->
+            <div class="card fade-in-up" style="animation-delay:0.25s;">
+                <div class="card-title">
+                    <span><i class="fas fa-chart-bar mr-2"></i>Fungsi Keanggotaan</span>
+                </div>
+                <div class="mb-3">
+                    <div class="text-xs text-gray-400 mb-1">Error (e)</div>
+                    <div class="mf-container" id="mfError">
+                        <span class="mf-item active">NB</span>
+                        <span class="mf-item">NS</span>
+                        <span class="mf-item active">Z</span>
+                        <span class="mf-item">PS</span>
+                        <span class="mf-item">PB</span>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="text-xs text-gray-400 mb-1">Δ Error (de/dt)</div>
+                    <div class="mf-container" id="mfDelta">
+                        <span class="mf-item">NB</span>
+                        <span class="mf-item active">NS</span>
+                        <span class="mf-item">Z</span>
+                        <span class="mf-item active">PS</span>
+                        <span class="mf-item">PB</span>
+                    </div>
+                </div>
+                <div>
+                    <div class="text-xs text-gray-400 mb-1">Output (Kp, Ki, Kd)</div>
+                    <div class="mf-container" id="mfOutput">
+                        <span class="mf-item">NB</span>
+                        <span class="mf-item">NS</span>
+                        <span class="mf-item active">Z</span>
+                        <span class="mf-item">PS</span>
+                        <span class="mf-item">PB</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== LIVE TUNING ===== -->
+        <div class="card fade-in-up" style="animation-delay:0.30s;">
+            <div class="card-title">
+                <span><i class="fas fa-edit mr-2"></i>Live Tuning</span>
+                <span class="text-xs text-gray-400">Ubah parameter secara real-time</span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="text-sm text-gray-400">Kp</label>
+                    <div class="flex items-center gap-3">
+                        <input type="range" min="0" max="10" step="0.1" value="2.0" id="kpSlider" class="flex-1" />
+                        <span class="text-lg font-bold text-green-400" id="kpSliderDisplay">2.0</span>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-sm text-gray-400">Ki</label>
+                    <div class="flex items-center gap-3">
+                        <input type="range" min="0" max="5" step="0.1" value="0.5" id="kiSlider" class="flex-1" />
+                        <span class="text-lg font-bold text-blue-400" id="kiSliderDisplay">0.5</span>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-sm text-gray-400">Kd</label>
+                    <div class="flex items-center gap-3">
+                        <input type="range" min="0" max="2" step="0.01" value="0.1" id="kdSlider" class="flex-1" />
+                        <span class="text-lg font-bold text-yellow-400" id="kdSliderDisplay">0.1</span>
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-end mt-3">
+                <button class="btn btn-primary" id="applyTuningBtn">
+                    <i class="fas fa-check"></i> Terapkan Tuning
+                </button>
+            </div>
+        </div>
+
+        <!-- ===== CHART ===== -->
+        <div class="card mt-6 fade-in-up" style="animation-delay:0.35s;">
+            <div class="card-title">
+                <span><i class="fas fa-chart-line mr-2"></i>Grafik Parameter Fuzzy-PID</span>
+                <div class="flex gap-2">
+                    <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition active" data-param="all">All</button>
+                    <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-param="kp">Kp</button>
+                    <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-param="ki">Ki</button>
+                    <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-param="kd">Kd</button>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="fuzzyChart"></canvas>
+            </div>
+        </div>
+
+        <!-- ===== FOOTER ===== -->
+        <div class="text-center text-xs text-gray-500 mt-8 border-t border-white/5 pt-4">
+            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v2.0.0
+        </div>
+    </div>
+
+    <!-- ===== TOAST CONTAINER ===== -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- ============================================================ -->
+    <!-- ===== JAVASCRIPT ===== -->
+    <script>
+        // =============================================================
+        // 1. CONFIGURATION
+        // =============================================================
+        const CONFIG = {
+            MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
+            MQTT_TOPICS: {
+                FUZZY_STATUS: 'fuzzy/status',
+                SETTING_UPDATE: 'setting/update',
+                SENSOR_SHT31: 'sensor/sht31',
+                ACTUATOR_STATUS: 'actuator/status',
+            },
+            INTERVAL_SAMPLE: 2000,
+        };
+
+        // =============================================================
+        // 2. STATE
+        // =============================================================
+        const state = {
+            setpointTemp: 27.5,
+            setpointHum: 75,
+            error: 0,
+            deltaError: 0,
+            kp: 2.0,
+            ki: 0.5,
+            kd: 0.1,
+            outputPid: 0,
+            temp: 27.5,
+            hum: 75,
+            mqttConnected: false,
+            wifiConnected: true,
+            sheetConnected: true,
+            rules: [
+                { condition: 'IF error Z AND delta Z THEN Kp Z', weight: 1.0, active: true },
+                { condition: 'IF error PS AND delta Z THEN Kp PS', weight: 0.8, active: false },
+                { condition: 'IF error NS AND delta Z THEN Kp NS', weight: 0.8, active: false },
+                { condition: 'IF error Z AND delta PS THEN Ki PS', weight: 0.7, active: false },
+                { condition: 'IF error Z AND delta NS THEN Ki NS', weight: 0.7, active: false },
+                { condition: 'IF error PS AND delta NS THEN Kd PS', weight: 0.6, active: false },
+                { condition: 'IF error NS AND delta PS THEN Kd NS', weight: 0.6, active: false },
+            ],
+            mfError: ['Z'], // active membership functions
+            mfDelta: ['Z'],
+            mfOutput: ['Z'],
+            chartData: { labels: [], kp: [], ki: [], kd: [], output: [], error: [] },
+        };
+
+        mqttManager.on('fuzzy/status', function(data) {
+            if (data.setpointTemp !== undefined) state.setpointTemp = data.setpointTemp;
+            if (data.setpointHum !== undefined) state.setpointHum = data.setpointHum;
+            if (data.kp !== undefined) state.kp = data.kp;
+            if (data.ki !== undefined) state.ki = data.ki;
+            if (data.kd !== undefined) state.kd = data.kd;
+            if (data.error !== undefined) state.error = data.error;
+            if (data.deltaError !== undefined) state.deltaError = data.deltaError;
+            updateFuzzyUI();
+        });
+
+        // =============================================================
+        // 3. UTILITY
+        // =============================================================
+        function formatTime(d) { d = d || new Date(); return d.toLocaleTimeString('id-ID', { hour12: false }); }
+
+        function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
+
+        function randomBetween(min, max) { return Math.random() * (max - min) + min; }
+
+        function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+        // =============================================================
+        // 4. TOAST
+        // =============================================================
+        function showToast(message, type = 'info', duration = 4000) {
+            const container = document.getElementById('toastContainer');
+            const icons = { success: 'fa-check-circle', error: 'fa-exclamation-circle', warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info' };
+            const colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
+            const el = document.createElement('div');
+            el.className = 'toast';
+            el.innerHTML = `
+            <span class="icon ${colors[type]}"><i class="fas ${icons[type] || icons.info}"></i></span>
+            <span>${message}</span>
+          `;
+            container.appendChild(el);
+            setTimeout(() => { el.classList.add('hide');
+                setTimeout(() => el.remove(), 400); }, duration);
+        }
+
+        // =============================================================
+        // 5. CLOCK & SIDEBAR
+        // =============================================================
+        function updateClock() {
+            document.getElementById('clock').textContent = formatTime();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        const menuToggle = document.getElementById('menuToggle');
+        const sidebar = document.getElementById('sidebar');
+        menuToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            sidebar.classList.toggle('open');
+        });
+        document.addEventListener('click', function(e) {
+            if (window.innerWidth <= 1024) {
+                if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+                    sidebar.classList.remove('open');
+                }
+            }
+        });
+        window.addEventListener('resize', function() {
+            if (window.innerWidth > 1024) sidebar.classList.remove('open');
+        });
+
+        // =============================================================
+        // 6. MQTT
+        // =============================================================
+        let mqttClient = null;
+
+        function connectMQTT() {
+            try {
+                mqttClient = mqtt.connect(CONFIG.MQTT_BROKER, {
+                    clientId: 'fuzzy_' + uid(),
+                    clean: true,
+                    reconnectPeriod: 3000,
+                });
+                mqttClient.on('connect', () => {
+                    state.mqttConnected = true;
+                    updateStatusIndicators();
+                    showToast('MQTT Terhubung', 'success');
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.FUZZY_STATUS);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
+                });
+                mqttClient.on('message', (topic, payload) => {
+                    try {
+                        const data = JSON.parse(payload.toString());
+                        handleMqttMessage(topic, data);
+                    } catch (e) { /* ignore */ }
+                });
+                mqttClient.on('close', () => {
+                    state.mqttConnected = false;
+                    updateStatusIndicators();
+                    showToast('MQTT Terputus', 'error');
+                });
+                mqttClient.on('error', () => {
+                    state.mqttConnected = false;
+                    updateStatusIndicators();
+                });
+            } catch (e) {
+                state.mqttConnected = false;
+                updateStatusIndicators();
+            }
+        }
+
+        function handleMqttMessage(topic, data) {
+            switch (topic) {
+                case CONFIG.MQTT_TOPICS.FUZZY_STATUS:
+                    if (data.setpointTemp !== undefined) state.setpointTemp = data.setpointTemp;
+                    if (data.setpointHum !== undefined) state.setpointHum = data.setpointHum;
+                    if (data.error !== undefined) state.error = data.error;
+                    if (data.deltaError !== undefined) state.deltaError = data.deltaError;
+                    if (data.kp !== undefined) state.kp = data.kp;
+                    if (data.ki !== undefined) state.ki = data.ki;
+                    if (data.kd !== undefined) state.kd = data.kd;
+                    if (data.output !== undefined) state.outputPid = data.output;
+                    if (data.rules !== undefined) state.rules = data.rules;
+                    if (data.mfError !== undefined) state.mfError = data.mfError;
+                    if (data.mfDelta !== undefined) state.mfDelta = data.mfDelta;
+                    if (data.mfOutput !== undefined) state.mfOutput = data.mfOutput;
+                    updateAllUI();
+                    break;
+                case CONFIG.MQTT_TOPICS.SENSOR_SHT31:
+                    if (data.temperature !== undefined) state.temp = data.temperature;
+                    if (data.humidity !== undefined) state.hum = data.humidity;
+                    // Recalculate error based on current temp
+                    state.error = state.setpointTemp - state.temp;
+                    updateAllUI();
+                    break;
+                case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
+                    // Just update output if available
+                    if (data.peltierPwm !== undefined) state.outputPid = data.peltierPwm;
+                    updateAllUI();
+                    break;
+                default:
+                    break;
+            }
+            updateChartData();
+        }
+
+        // =============================================================
+        // 7. SIMULASI
+        // =============================================================
+        let simInterval = null;
+
+        function startSimulation() {
+            if (simInterval) return;
+            simInterval = setInterval(() => {
+                // Simulasi perubahan suhu
+                state.temp += randomBetween(-0.15, 0.15);
+                state.temp = clamp(state.temp, 24, 32);
+                state.hum += randomBetween(-0.3, 0.3);
+                state.hum = clamp(state.hum, 55, 92);
+
+                // Hitung error
+                state.error = state.setpointTemp - state.temp;
+                state.deltaError = (state.error - (state._lastError || 0)) / 2;
+                state._lastError = state.error;
+
+                // Simulasi fuzzy-PID sederhana
+                const p = state.kp * state.error;
+                const i = state.ki * (state._integral || 0) + 0.01 * state.error;
+                state._integral = (state._integral || 0) + state.error * 2 / 1000;
+                state._integral = clamp(state._integral, -10, 10);
+                const d = state.kd * state.deltaError;
+                state.outputPid = clamp(p + i + d, -100, 100);
+
+                // Simulasi aturan fuzzy
+                const absE = Math.abs(state.error);
+                const absDE = Math.abs(state.deltaError);
+                state.mfError = [];
+                state.mfDelta = [];
+                state.mfOutput = [];
+                if (absE < 0.5) { state.mfError.push('Z');
+                    state.mfOutput.push('Z'); }
+                if (absE > 0.3 && absE < 1.5) { state.mfError.push('PS');
+                    state.mfOutput.push('PS'); }
+                if (absE > 1.0) { state.mfError.push('PB');
+                    state.mfOutput.push('PB'); }
+                if (absE < -0.3 && absE > -1.5) { state.mfError.push('NS');
+                    state.mfOutput.push('NS'); }
+                if (absE < -1.0) { state.mfError.push('NB');
+                    state.mfOutput.push('NB'); }
+                if (absDE < 0.1) state.mfDelta.push('Z');
+                if (absDE > 0.05 && absDE < 0.3) state.mfDelta.push('PS');
+                if (absDE > 0.2) state.mfDelta.push('PB');
+                if (absDE < -0.05 && absDE > -0.3) state.mfDelta.push('NS');
+                if (absDE < -0.2) state.mfDelta.push('NB');
+                if (state.mfError.length === 0) state.mfError.push('Z');
+                if (state.mfDelta.length === 0) state.mfDelta.push('Z');
+                if (state.mfOutput.length === 0) state.mfOutput.push('Z');
+
+                // Update rules
+                state.rules.forEach(r => {
+                    r.active = Math.random() > 0.6;
+                    r.weight = 0.5 + Math.random() * 0.5;
+                });
+
+                updateAllUI();
+                updateChartData();
+                updateStatusIndicators();
+            }, CONFIG.INTERVAL_SAMPLE);
+        }
+
+        // =============================================================
+        // 8. UI UPDATE
+        // =============================================================
+        function updateStatusIndicators() {
+            const setDot = (id, online) => {
+                const el = document.getElementById(id);
+                if (el) el.className = `dot ${online ? 'online' : 'offline'}`;
+            };
+            setDot('wifiDot', state.wifiConnected);
+            setDot('mqttDot', state.mqttConnected);
+            setDot('sheetDot', state.sheetConnected);
+        }
+
+        function updateAllUI() {
+            // Setpoint
+            document.getElementById('setpointTempDisplay').innerHTML = state.setpointTemp.toFixed(1) +
+                ' <span class="unit">°C</span>';
+            document.getElementById('setpointHumDisplay').innerHTML = state.setpointHum.toFixed(0) +
+                ' <span class="unit">%</span>';
+
+            // Error
+            const errorEl = document.getElementById('errorDisplay');
+            errorEl.innerHTML = state.error.toFixed(2) + ' <span class="unit">°C</span>';
+            errorEl.className = `value ${Math.abs(state.error) > 2 ? 'danger' : Math.abs(state.error) > 1 ? 'warning' : ''}`;
+
+            const deltaEl = document.getElementById('deltaErrorDisplay');
+            deltaEl.innerHTML = state.deltaError.toFixed(2) + ' <span class="unit">°C/s</span>';
+            deltaEl.className =
+            `value ${Math.abs(state.deltaError) > 0.5 ? 'danger' : Math.abs(state.deltaError) > 0.2 ? 'warning' : ''}`;
+
+            // PID
+            document.getElementById('kpDisplay').textContent = state.kp.toFixed(2);
+            document.getElementById('kiDisplay').textContent = state.ki.toFixed(2);
+            document.getElementById('kdDisplay').textContent = state.kd.toFixed(2);
+            document.getElementById('outputDisplay').innerHTML = state.outputPid.toFixed(1) + ' <span class="unit">%</span>';
+
+            // Sliders
+            document.getElementById('kpSlider').value = state.kp;
+            document.getElementById('kpSliderDisplay').textContent = state.kp.toFixed(1);
+            document.getElementById('kiSlider').value = state.ki;
+            document.getElementById('kiSliderDisplay').textContent = state.ki.toFixed(1);
+            document.getElementById('kdSlider').value = state.kd;
+            document.getElementById('kdSliderDisplay').textContent = state.kd.toFixed(2);
+
+            // Rules
+            const ruleList = document.getElementById('ruleList');
+            const activeRules = state.rules.filter(r => r.active);
+            document.getElementById('ruleCount').textContent = activeRules.length + ' aturan';
+            if (activeRules.length === 0) {
+                ruleList.innerHTML =
+                    `<div class="rule-item"><span class="rule-text text-gray-400">Tidak ada aturan aktif</span></div>`;
+            } else {
+                ruleList.innerHTML = activeRules.map(r => `
+              <div class="rule-item active">
+                <span class="rule-text">${r.condition}</span>
+                <span class="rule-weight">${r.weight.toFixed(2)}</span>
+              </div>
+            `).join('');
+            }
+
+            // Membership functions
+            document.querySelectorAll('#mfError .mf-item').forEach(el => {
+                const label = el.textContent.trim();
+                el.classList.toggle('active', state.mfError.includes(label));
+            });
+            document.querySelectorAll('#mfDelta .mf-item').forEach(el => {
+                const label = el.textContent.trim();
+                el.classList.toggle('active', state.mfDelta.includes(label));
+            });
+            document.querySelectorAll('#mfOutput .mf-item').forEach(el => {
+                const label = el.textContent.trim();
+                el.classList.toggle('active', state.mfOutput.includes(label));
+            });
+        }
+
+        // =============================================================
+        // 9. LIVE TUNING
+        // =============================================================
+        document.getElementById('kpSlider').addEventListener('input', function() {
+            const val = parseFloat(this.value);
+            document.getElementById('kpSliderDisplay').textContent = val.toFixed(1);
+            state.kp = val;
+        });
+        document.getElementById('kiSlider').addEventListener('input', function() {
+            const val = parseFloat(this.value);
+            document.getElementById('kiSliderDisplay').textContent = val.toFixed(1);
+            state.ki = val;
+        });
+        document.getElementById('kdSlider').addEventListener('input', function() {
+            const val = parseFloat(this.value);
+            document.getElementById('kdSliderDisplay').textContent = val.toFixed(2);
+            state.kd = val;
+        });
+
+        document.getElementById('applyTuningBtn').addEventListener('click', function() {
+            const data = {
+                kp: state.kp,
+                ki: state.ki,
+                kd: state.kd,
+            };
+            if (state.mqttConnected && mqttClient) {
+                mqttClient.publish(CONFIG.MQTT_TOPICS.SETTING_UPDATE, JSON.stringify(data));
+                showToast(`Tuning diterapkan: Kp=${state.kp}, Ki=${state.ki}, Kd=${state.kd}`, 'success');
+            } else {
+                showToast('MQTT tidak terhubung, tuning hanya di dashboard', 'warning');
+            }
+            updateAllUI();
+        });
+
+        // =============================================================
+        // 10. CHART
+        // =============================================================
+        let chart = null;
+
+        function initChart() {
+            const ctx = document.getElementById('fuzzyChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: state.chartData.labels,
+                    datasets: [{
+                        label: 'Kp',
+                        data: state.chartData.kp,
+                        borderColor: '#2a9d8f',
+                        backgroundColor: 'rgba(42,157,143,0.05)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true,
+                    }, {
+                        label: 'Ki',
+                        data: state.chartData.ki,
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52,152,219,0.05)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true,
+                    }, {
+                        label: 'Kd',
+                        data: state.chartData.kd,
+                        borderColor: '#f1c40f',
+                        backgroundColor: 'rgba(241,196,15,0.05)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true,
+                    }, {
+                        label: 'Output PID',
+                        data: state.chartData.output,
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231,76,60,0.05)',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true,
+                    }, {
+                        label: 'Error',
+                        data: state.chartData.error,
+                        borderColor: '#e67e22',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        borderDash: [4, 4],
+                    }, ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#8892a8', font: { size: 10, family: 'Poppins' }, boxWidth: 12,
+                                padding: 8 }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: 'rgba(11,14,20,0.9)',
+                            borderColor: 'rgba(255,255,255,0.06)',
+                            borderWidth: 1,
+                            titleColor: '#e8edf5',
+                            bodyColor: '#8892a8',
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255,255,255,0.03)' },
+                            ticks: { color: '#4a5268', maxTicksLimit: 10, font: { size: 9 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255,255,255,0.03)' },
+                            ticks: { color: '#4a5268', font: { size: 9 } }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index',
+                    }
+                }
+            });
+        }
+
+        function updateChartData() {
+            if (!chart) return;
+            const now = formatTime();
+            const maxPoints = 200;
+            state.chartData.labels.push(now);
+            state.chartData.kp.push(state.kp);
+            state.chartData.ki.push(state.ki);
+            state.chartData.kd.push(state.kd);
+            state.chartData.output.push(state.outputPid);
+            state.chartData.error.push(state.error);
+
+            if (state.chartData.labels.length > maxPoints) {
+                state.chartData.labels.shift();
+                state.chartData.kp.shift();
+                state.chartData.ki.shift();
+                state.chartData.kd.shift();
+                state.chartData.output.shift();
+                state.chartData.error.shift();
+            }
+
+            chart.data.labels = state.chartData.labels;
+            chart.data.datasets[0].data = state.chartData.kp;
+            chart.data.datasets[1].data = state.chartData.ki;
+            chart.data.datasets[2].data = state.chartData.kd;
+            chart.data.datasets[3].data = state.chartData.output;
+            chart.data.datasets[4].data = state.chartData.error;
+            chart.update('none');
+        }
+
+        // =============================================================
+        // 11. CHART PARAM FILTER
+        // =============================================================
+        document.querySelectorAll('[data-param]').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('[data-param]').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                const param = this.dataset.param;
+                const datasets = chart.data.datasets;
+                if (param === 'all') {
+                    datasets.forEach(d => d.hidden = false);
+                } else {
+                    const map = { 'kp': 0, 'ki': 1, 'kd': 2 };
+                    datasets.forEach((d, i) => {
+                        d.hidden = i !== map[param];
+                    });
+                }
+                chart.update();
+                showToast(`Menampilkan ${param.toUpperCase()}`, 'info');
+            });
+        });
+
+        // =============================================================
+        // 12. INIT
+        // =============================================================
+        function init() {
+            state.setpointTemp = 27.5;
+            state.setpointHum = 75;
+            state.kp = 2.0;
+            state.ki = 0.5;
+            state.kd = 0.1;
+            state.temp = 27.3;
+            state.hum = 74.8;
+            state.error = state.setpointTemp - state.temp;
+
+            updateAllUI();
+            updateStatusIndicators();
+            initChart();
+            connectMQTT();
+            startSimulation();
+
+            setTimeout(() => {
+                document.getElementById('loading-screen').classList.add('hide');
+            }, 600);
+            setTimeout(() => {
+                showToast('Fuzzy PID siap', 'success');
+            }, 1000);
+
+            setInterval(() => {
+                if (!state.mqttConnected && mqttClient) {
+                    try { mqttClient.reconnect(); } catch (e) {}
+                }
+                updateStatusIndicators();
+            }, 10000);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        // Ekspos untuk debug
+        window.__state = state;
+        window.__config = CONFIG;
+        console.log('🧠 Fuzzy PID Page Loaded');
+    </script>
+
+</body>
+</html>

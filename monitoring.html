@@ -1,0 +1,1635 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monitoring - IoT Kandang Ulat Hongkong</title>
+    <script src="https://cdn.tailwindcss.com">
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js">
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
+    </script>
+    <style>
+        /* ===== RESET & BASE ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #0b0e14;
+            color: #e8edf5;
+            overflow-x: hidden;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1a1f2b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2a9d8f;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #21867a;
+        }
+
+        /* ===== GLASSMORPHISM ===== */
+        .glass {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+        }
+        .glass-light {
+            background: rgba(255, 255, 255, 0.07);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* ===== SIDEBAR ===== */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 76px;
+            height: 100vh;
+            background: rgba(11, 14, 20, 0.92);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            z-index: 1000;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: 16px 0;
+        }
+        .sidebar:hover {
+            width: 240px;
+        }
+        .sidebar .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0 18px 24px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 16px;
+            white-space: nowrap;
+        }
+        .sidebar .logo i {
+            font-size: 28px;
+            color: #2a9d8f;
+            min-width: 40px;
+            text-align: center;
+        }
+        .sidebar .logo span {
+            font-size: 18px;
+            font-weight: 700;
+            color: #e8edf5;
+            opacity: 0;
+            transition: opacity 0.25s;
+        }
+        .sidebar:hover .logo span {
+            opacity: 1;
+        }
+        .sidebar .nav {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 8px;
+        }
+        .sidebar .nav a {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 14px;
+            margin-bottom: 4px;
+            border-radius: 12px;
+            color: #8892a8;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            white-space: nowrap;
+            position: relative;
+        }
+        .sidebar .nav a i {
+            font-size: 20px;
+            min-width: 36px;
+            text-align: center;
+        }
+        .sidebar .nav a span {
+            opacity: 0;
+            transition: opacity 0.25s;
+        }
+        .sidebar:hover .nav a span {
+            opacity: 1;
+        }
+        .sidebar .nav a:hover {
+            background: rgba(42, 157, 143, 0.15);
+            color: #e8edf5;
+        }
+        .sidebar .nav a.active {
+            background: rgba(42, 157, 143, 0.20);
+            color: #2a9d8f;
+            box-shadow: inset 3px 0 0 #2a9d8f;
+        }
+        .sidebar .nav a .badge {
+            margin-left: auto;
+            background: #2a9d8f;
+            color: #fff;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 20px;
+            opacity: 0;
+            transition: opacity 0.25s;
+        }
+        .sidebar:hover .nav a .badge {
+            opacity: 1;
+        }
+
+        /* ===== MAIN CONTENT ===== */
+        .main-content {
+            margin-left: 76px;
+            min-height: 100vh;
+            padding: 20px 24px 40px;
+            transition: margin-left 0.3s;
+        }
+
+        /* ===== TOP NAVBAR ===== */
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding: 12px 20px;
+            background: rgba(11, 14, 20, 0.7);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            margin-bottom: 24px;
+        }
+        .topbar .left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .topbar .left .menu-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: #e8edf5;
+            font-size: 22px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+        .topbar .left .menu-toggle:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .topbar .left h1 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .topbar .left h1 small {
+            font-weight: 400;
+            font-size: 13px;
+            color: #8892a8;
+        }
+        .topbar .right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .topbar .right .status-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #8892a8;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 4px 12px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .topbar .right .status-item .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .topbar .right .status-item .dot.online {
+            background: #2a9d8f;
+            box-shadow: 0 0 8px rgba(42, 157, 143, 0.5);
+        }
+        .topbar .right .status-item .dot.offline {
+            background: #e74c3c;
+            box-shadow: 0 0 8px rgba(231, 76, 60, 0.4);
+        }
+        .topbar .right .clock {
+            font-size: 15px;
+            font-weight: 500;
+            color: #e8edf5;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 4px 14px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            font-variant-numeric: tabular-nums;
+        }
+        .topbar .right .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2a9d8f, #1a6b62);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            color: #fff;
+            cursor: pointer;
+            border: 2px solid rgba(42, 157, 143, 0.3);
+        }
+
+        /* ===== CARDS ===== */
+        .card {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 16px;
+            padding: 20px;
+            transition: all 0.25s;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+        }
+        .card:hover {
+            border-color: rgba(42, 157, 143, 0.2);
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.35);
+            transform: translateY(-2px);
+        }
+        .card .card-title {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #8892a8;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .card .card-title i {
+            font-size: 16px;
+            color: #2a9d8f;
+        }
+
+        /* ===== SENSOR VALUE ===== */
+        .sensor-value {
+            font-size: 36px;
+            font-weight: 700;
+            line-height: 1.1;
+        }
+        .sensor-value .unit {
+            font-size: 18px;
+            font-weight: 400;
+            color: #8892a8;
+            margin-left: 4px;
+        }
+        .sensor-value .status-badge {
+            font-size: 12px;
+            font-weight: 500;
+            padding: 2px 12px;
+            border-radius: 30px;
+            margin-left: 10px;
+        }
+        .status-badge.normal {
+            background: rgba(42, 157, 143, 0.2);
+            color: #2a9d8f;
+        }
+        .status-badge.warning {
+            background: rgba(241, 196, 15, 0.2);
+            color: #f1c40f;
+        }
+        .status-badge.danger {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+        }
+
+        /* ===== PROGRESS BAR ===== */
+        .progress-track {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .progress-track .progress-fill {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.4s ease;
+        }
+
+        /* ===== GAUGE ===== */
+        .gauge-wrap {
+            position: relative;
+            width: 160px;
+            height: 160px;
+            margin: 0 auto;
+        }
+        .gauge-wrap canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        .gauge-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        .gauge-center .val {
+            font-size: 32px;
+            font-weight: 700;
+            line-height: 1;
+        }
+        .gauge-center .lbl {
+            font-size: 12px;
+            color: #8892a8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* ===== CHART CONTAINER ===== */
+        .chart-container {
+            position: relative;
+            height: 220px;
+            width: 100%;
+        }
+        @media (max-width: 640px) {
+            .chart-container {
+                height: 160px;
+            }
+            .gauge-wrap {
+                width: 120px;
+                height: 120px;
+            }
+            .gauge-center .val {
+                font-size: 24px;
+            }
+        }
+
+        /* ===== TOAST ===== */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9998;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 380px;
+            width: 100%;
+        }
+        .toast {
+            padding: 14px 18px;
+            border-radius: 12px;
+            background: rgba(20, 25, 35, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideInRight 0.4s ease;
+            font-size: 13px;
+        }
+        .toast .icon {
+            font-size: 18px;
+        }
+        .toast .icon.success {
+            color: #2a9d8f;
+        }
+        .toast .icon.error {
+            color: #e74c3c;
+        }
+        .toast .icon.warning {
+            color: #f1c40f;
+        }
+        .toast .icon.info {
+            color: #3498db;
+        }
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(60px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        .toast.hide {
+            opacity: 0;
+            transform: translateX(60px);
+            transition: 0.3s;
+        }
+
+        /* ===== BREADCRUMB ===== */
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #8892a8;
+            flex-wrap: wrap;
+        }
+        .breadcrumb a {
+            color: #8892a8;
+            text-decoration: none;
+            transition: 0.2s;
+        }
+        .breadcrumb a:hover {
+            color: #2a9d8f;
+        }
+        .breadcrumb .sep {
+            color: #3a4050;
+        }
+        .breadcrumb .current {
+            color: #e8edf5;
+        }
+
+        /* ===== LOADING ===== */
+        #loading-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: #0b0e14;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.8s, visibility 0.8s;
+        }
+        #loading-screen.hide {
+            opacity: 0;
+            visibility: hidden;
+        }
+        #loading-screen .spinner {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: 4px solid rgba(42, 157, 143, 0.15);
+            border-top-color: #2a9d8f;
+            animation: spin-slow 1s linear infinite;
+        }
+        #loading-screen p {
+            margin-top: 20px;
+            color: #8892a8;
+            font-weight: 500;
+            letter-spacing: 1px;
+        }
+        @keyframes spin-slow {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ===== TABLE ===== */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .data-table th {
+            text-align: left;
+            padding: 8px 12px;
+            color: #8892a8;
+            font-weight: 500;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .data-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+        .data-table tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* ===== RESPONSIVE SIDEBAR ===== */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 0;
+                padding: 0;
+                overflow: hidden;
+                border-right: none;
+            }
+            .sidebar.open {
+                width: 240px;
+                padding: 16px 0;
+                overflow-y: auto;
+            }
+            .main-content {
+                margin-left: 0;
+            }
+            .topbar .left .menu-toggle {
+                display: block;
+            }
+            .topbar .left h1 small {
+                display: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 12px 12px 32px;
+            }
+            .topbar {
+                padding: 10px 14px;
+            }
+            .topbar .right .status-item span {
+                display: none;
+            }
+            .topbar .right .clock {
+                font-size: 13px;
+                padding: 2px 10px;
+            }
+            .sensor-value {
+                font-size: 28px;
+            }
+            .gauge-wrap {
+                width: 100px;
+                height: 100px;
+            }
+            .gauge-center .val {
+                font-size: 20px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .topbar .left h1 {
+                font-size: 15px;
+            }
+            .topbar .right .status-item {
+                padding: 2px 8px;
+                font-size: 10px;
+            }
+            .card {
+                padding: 14px;
+            }
+        }
+
+        /* Utility */
+        .text-neon {
+            color: #2a9d8f;
+        }
+        .flex-wrap {
+            flex-wrap: wrap;
+        }
+        .items-center {
+            align-items: center;
+        }
+        .justify-between {
+            justify-content: space-between;
+        }
+        .text-center {
+            text-align: center;
+        }
+        .w-full {
+            width: 100%;
+        }
+        .gap-2 {
+            gap: 8px;
+        }
+        .gap-3 {
+            gap: 12px;
+        }
+        .gap-4 {
+            gap: 16px;
+        }
+        .gap-6 {
+            gap: 24px;
+        }
+        .grid-cols-1 {
+            grid-template-columns: 1fr;
+        }
+        .grid-cols-2 {
+            grid-template-columns: 1fr 1fr;
+        }
+        .grid-cols-3 {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+        .col-span-2 {
+            grid-column: span 2;
+        }
+        .mt-2 {
+            margin-top: 8px;
+        }
+        .mt-3 {
+            margin-top: 12px;
+        }
+        .mt-4 {
+            margin-top: 16px;
+        }
+        .mt-6 {
+            margin-top: 24px;
+        }
+        .mb-2 {
+            margin-bottom: 8px;
+        }
+        .mb-3 {
+            margin-bottom: 12px;
+        }
+        .mb-4 {
+            margin-bottom: 16px;
+        }
+        .mb-6 {
+            margin-bottom: 24px;
+        }
+        .p-4 {
+            padding: 16px;
+        }
+        .text-xs {
+            font-size: 11px;
+        }
+        .text-sm {
+            font-size: 13px;
+        }
+        .text-base {
+            font-size: 15px;
+        }
+        .text-lg {
+            font-size: 17px;
+        }
+        .text-xl {
+            font-size: 20px;
+        }
+        .text-2xl {
+            font-size: 24px;
+        }
+        .font-medium {
+            font-weight: 500;
+        }
+        .font-semibold {
+            font-weight: 600;
+        }
+        .font-bold {
+            font-weight: 700;
+        }
+        .opacity-60 {
+            opacity: 0.6;
+        }
+        .opacity-80 {
+            opacity: 0.8;
+        }
+        .relative {
+            position: relative;
+        }
+        .flex {
+            display: flex;
+        }
+        .grid {
+            display: grid;
+        }
+        @media (min-width: 640px) {
+            .sm\:grid-cols-2 {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        @media (min-width: 768px) {
+            .md\:grid-cols-2 {
+                grid-template-columns: 1fr 1fr;
+            }
+            .md\:grid-cols-3 {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            .md\:col-span-2 {
+                grid-column: span 2;
+            }
+        }
+        @media (min-width: 1024px) {
+            .lg\:grid-cols-3 {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            .lg\:grid-cols-4 {
+                grid-template-columns: 1fr 1fr 1fr 1fr;
+            }
+            .lg\:col-span-2 {
+                grid-column: span 2;
+            }
+        }
+
+        .transition-all {
+            transition: all 0.25s ease;
+        }
+        .cursor-pointer {
+            cursor: pointer;
+        }
+        .rounded-full {
+            border-radius: 9999px;
+        }
+        .rounded-xl {
+            border-radius: 12px;
+        }
+        .rounded-2xl {
+            border-radius: 16px;
+        }
+        .overflow-hidden {
+            overflow: hidden;
+        }
+        .border {
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .bg-white\/5 {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .bg-white\/10 {
+            background: rgba(255, 255, 255, 0.10);
+        }
+        .text-gray-400 {
+            color: #8892a8;
+        }
+        .text-gray-500 {
+            color: #6a7288;
+        }
+        .text-white {
+            color: #e8edf5;
+        }
+        .text-green-400 {
+            color: #2a9d8f;
+        }
+        .text-yellow-400 {
+            color: #f1c40f;
+        }
+        .text-red-400 {
+            color: #e74c3c;
+        }
+        .text-blue-400 {
+            color: #3498db;
+        }
+        .bg-green-500\/20 {
+            background: rgba(42, 157, 143, 0.2);
+        }
+        .bg-yellow-500\/20 {
+            background: rgba(241, 196, 15, 0.2);
+        }
+        .bg-red-500\/20 {
+            background: rgba(231, 76, 60, 0.2);
+        }
+        .bg-blue-500\/20 {
+            background: rgba(52, 152, 219, 0.2);
+        }
+        .border-green-500\/20 {
+            border-color: rgba(42, 157, 143, 0.2);
+        }
+        .border-yellow-500\/20 {
+            border-color: rgba(241, 196, 15, 0.2);
+        }
+        .border-red-500\/20 {
+            border-color: rgba(231, 76, 60, 0.2);
+        }
+        .hover\:bg-white\/10:hover {
+            background: rgba(255, 255, 255, 0.10);
+        }
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .fade-in-up {
+            animation: fadeInUp 0.5s ease forwards;
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== LOADING SCREEN ===== -->
+    <div id="loading-screen">
+        <div class="spinner"></div>
+        <p>⏳ Memuat Monitoring ...</p>
+    </div>
+
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="sidebar" id="sidebar">
+        <div class="logo">
+            <i class="fas fa-bug"></i>
+            <span>IoT Ulat</span>
+        </div>
+        <nav class="nav">
+            <a href="index.html"><i class="fas fa-home"></i><span>Dashboard</span></a>
+            <a href="monitoring.html" class="active"><i class="fas fa-chart-line"></i><span>Monitoring</span></a>
+            <a href="control.html"><i class="fas fa-sliders-h"></i><span>Kontrol</span></a>
+            <a href="fuzzy.html"><i class="fas fa-brain"></i><span>Fuzzy PID</span></a>
+            <a href="self-monitoring.html"><i class="fas fa-heartbeat"></i><span>Self Monitoring</span></a>
+            <a href="history.html"><i class="fas fa-database"></i><span>Data Logger</span></a>
+            <a href="settings.html"><i class="fas fa-cog"></i><span>Settings</span></a>
+            <a href="about.html"><i class="fas fa-user"></i><span>About</span></a>
+        </nav>
+        <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:#4a5268;text-align:center;">
+            v2.0.0
+        </div>
+    </aside>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <div class="main-content" id="mainContent">
+
+        <!-- ===== TOPBAR ===== -->
+        <header class="topbar">
+            <div class="left">
+                <button class="menu-toggle" id="menuToggle" aria-label="Toggle Sidebar">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <h1>
+                    📊 Monitoring
+                    <small>— Detail Sensor &amp; Grafik</small>
+                </h1>
+            </div>
+            <div class="right">
+                <div class="status-item">
+                    <span class="dot online" id="wifiDot"></span>
+                    <span>WiFi</span>
+                </div>
+                <div class="status-item">
+                    <span class="dot online" id="mqttDot"></span>
+                    <span>MQTT</span>
+                </div>
+                <div class="status-item">
+                    <span class="dot online" id="sheetDot"></span>
+                    <span>Spreadsheet</span>
+                </div>
+                <div class="clock" id="clock">--:--:--</div>
+                <div class="avatar">MR</div>
+            </div>
+        </header>
+
+        <!-- ===== BREADCRUMB ===== -->
+        <div class="breadcrumb mb-4">
+            <a href="index.html">🏠</a>
+            <span class="sep">/</span>
+            <span class="current">Monitoring</span>
+        </div>
+
+        <!-- ===== GAUGE & DETAIL CARDS ===== -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+
+            <!-- Suhu -->
+            <div class="card fade-in-up" style="animation-delay:0.05s;">
+                <div class="card-title">
+                    <span><i class="fas fa-thermometer-half mr-2"></i>Suhu</span>
+                    <span class="status-badge normal" id="tempBadge">Normal</span>
+                </div>
+                <div class="gauge-wrap">
+                    <canvas id="gaugeTemp"></canvas>
+                    <div class="gauge-center">
+                        <div class="val" id="gaugeTempVal">--</div>
+                        <div class="lbl">°C</div>
+                    </div>
+                </div>
+                <div class="mt-3 flex justify-between text-sm">
+                    <span>Min: <span id="tempMin">--</span>°C</span>
+                    <span>Max: <span id="tempMax">--</span>°C</span>
+                    <span>Avg: <span id="tempAvg">--</span>°C</span>
+                </div>
+                <div class="progress-track mt-2">
+                    <div class="progress-fill" id="tempProgress" style="width:50%;background:#2a9d8f;"></div>
+                </div>
+                <div class="flex justify-between text-xs text-gray-400 mt-1">
+                    <span>24°C</span>
+                    <span>29°C</span>
+                </div>
+            </div>
+
+            <!-- Kelembaban -->
+            <div class="card fade-in-up" style="animation-delay:0.10s;">
+                <div class="card-title">
+                    <span><i class="fas fa-tint mr-2"></i>Kelembaban</span>
+                    <span class="status-badge normal" id="humBadge">Normal</span>
+                </div>
+                <div class="gauge-wrap">
+                    <canvas id="gaugeHum"></canvas>
+                    <div class="gauge-center">
+                        <div class="val" id="gaugeHumVal">--</div>
+                        <div class="lbl">%RH</div>
+                    </div>
+                </div>
+                <div class="mt-3 flex justify-between text-sm">
+                    <span>Min: <span id="humMin">--</span>%</span>
+                    <span>Max: <span id="humMax">--</span>%</span>
+                    <span>Avg: <span id="humAvg">--</span>%</span>
+                </div>
+                <div class="progress-track mt-2">
+                    <div class="progress-fill" id="humProgress" style="width:50%;background:#3498db;"></div>
+                </div>
+                <div class="flex justify-between text-xs text-gray-400 mt-1">
+                    <span>60%</span>
+                    <span>90%</span>
+                </div>
+            </div>
+
+            <!-- NH₃ -->
+            <div class="card fade-in-up" style="animation-delay:0.15s;">
+                <div class="card-title">
+                    <span><i class="fas fa-wind mr-2"></i>NH₃</span>
+                    <span class="status-badge normal" id="nh3Badge">Normal</span>
+                </div>
+                <div class="gauge-wrap">
+                    <canvas id="gaugeNh3"></canvas>
+                    <div class="gauge-center">
+                        <div class="val" id="gaugeNh3Val">--</div>
+                        <div class="lbl">ppm</div>
+                    </div>
+                </div>
+                <div class="mt-3 flex justify-between text-sm">
+                    <span>Min: <span id="nh3Min">--</span>ppm</span>
+                    <span>Max: <span id="nh3Max">--</span>ppm</span>
+                    <span>Avg: <span id="nh3Avg">--</span>ppm</span>
+                </div>
+                <div class="progress-track mt-2">
+                    <div class="progress-fill" id="nh3Progress" style="width:10%;background:#f1c40f;"></div>
+                </div>
+                <div class="flex justify-between text-xs text-gray-400 mt-1">
+                    <span>0 ppm</span>
+                    <span>25 ppm</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== CHART MONITORING ===== -->
+        <div class="card mb-6 fade-in-up" style="animation-delay:0.20s;">
+            <div class="card-title">
+                <span><i class="fas fa-chart-area mr-2"></i>Grafik Realtime</span>
+                <div class="flex gap-2">
+                    <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-range="1h">1J</button>
+                    <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition active" data-range="24h">24J</button>
+                    <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-range="7d">7H</button>
+                    <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-range="30d">30H</button>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="monitoringChart"></canvas>
+            </div>
+        </div>
+
+        <!-- ===== DATA TERBARU ===== -->
+        <div class="card fade-in-up" style="animation-delay:0.25s;">
+            <div class="card-title">
+                <span><i class="fas fa-table mr-2"></i>Data Terbaru</span>
+                <span class="text-xs text-gray-400">Update setiap 2 detik</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Waktu</th>
+                            <th>Suhu (°C)</th>
+                            <th>Kelembaban (%)</th>
+                            <th>NH₃ (ppm)</th>
+                            <th>Peltier PWM (%)</th>
+                            <th>Fan PWM (%)</th>
+                            <th>Cool Fan PWM (%)</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataTableBody">
+                        <tr>
+                            <td colspan="8" class="text-center text-gray-400">Menunggu data ...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ===== FOOTER ===== -->
+        <div class="text-center text-xs text-gray-500 mt-8 border-t border-white/5 pt-4">
+            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v2.0.0
+        </div>
+    </div>
+
+    <!-- ===== TOAST CONTAINER ===== -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- ============================================================ -->
+    <!-- ===== JAVASCRIPT ===== -->
+    <script>
+        // =============================================================
+        // 1. CONFIGURATION
+        // =============================================================
+        const CONFIG = {
+            MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
+            MQTT_TOPICS: {
+                SENSOR_SHT31: 'sensor/sht31',
+                SENSOR_MQ135: 'sensor/mq135',
+                ACTUATOR_STATUS: 'actuator/status',
+            },
+            INTERVAL_SAMPLE: 2000,
+        };
+
+        // =============================================================
+        // 2. STATE
+        // =============================================================
+        const state = {
+            temp: 27.5,
+            hum: 75,
+            nh3: 5,
+            peltierPwm: 0,
+            fanPwm: 0,
+            coolFanPwm: 0,
+            peltierOn: false,
+            fanOn: false,
+            coolFanOn: false,
+            mode: 'AUTO',
+            mqttConnected: false,
+            wifiConnected: true,
+            sheetConnected: true,
+            tempMin: 27.5,
+            tempMax: 27.5,
+            tempSum: 0,
+            tempCount: 0,
+            humMin: 75,
+            humMax: 75,
+            humSum: 0,
+            humCount: 0,
+            nh3Min: 5,
+            nh3Max: 5,
+            nh3Sum: 0,
+            nh3Count: 0,
+            chartData: { labels: [], temp: [], hum: [], nh3: [], pwmPeltier: [], pwmFan: [], pwmCool: [] },
+            tableData: [],
+        };
+
+        // =============================================================
+        // 3. UTILITY
+        // =============================================================
+        function formatTime(d) { d = d || new Date(); return d.toLocaleTimeString('id-ID', { hour12: false }); }
+
+        function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
+
+        function randomBetween(min, max) { return Math.random() * (max - min) + min; }
+
+        function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+        // =============================================================
+        // 4. TOAST
+        // =============================================================
+        function showToast(message, type = 'info', duration = 4000) {
+            const container = document.getElementById('toastContainer');
+            const icons = { success: 'fa-check-circle', error: 'fa-exclamation-circle', warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info' };
+            const colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
+            const el = document.createElement('div');
+            el.className = 'toast';
+            el.innerHTML = `
+            <span class="icon ${colors[type]}"><i class="fas ${icons[type] || icons.info}"></i></span>
+            <span>${message}</span>
+          `;
+            container.appendChild(el);
+            setTimeout(() => { el.classList.add('hide');
+                setTimeout(() => el.remove(), 400); }, duration);
+        }
+
+        // =============================================================
+        // 5. CLOCK & SIDEBAR TOGGLE
+        // =============================================================
+        function updateClock() {
+            document.getElementById('clock').textContent = formatTime();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Sidebar toggle dengan hamburger
+        const menuToggle = document.getElementById('menuToggle');
+        const sidebar = document.getElementById('sidebar');
+
+        menuToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            sidebar.classList.toggle('open');
+        });
+
+        // Tutup sidebar saat klik di luar (mobile)
+        document.addEventListener('click', function(e) {
+            if (window.innerWidth <= 1024) {
+                if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+                    sidebar.classList.remove('open');
+                }
+            }
+        });
+
+        // Tutup sidebar saat resize ke desktop
+        window.addEventListener('resize', function() {
+            if (window.innerWidth > 1024) {
+                sidebar.classList.remove('open');
+            }
+        });
+
+        // =============================================================
+        // 6. MQTT
+        // =============================================================
+        let mqttClient = null;
+
+        function connectMQTT() {
+            try {
+                mqttClient = mqtt.connect(CONFIG.MQTT_BROKER, {
+                    clientId: 'monitor_' + uid(),
+                    clean: true,
+                    reconnectPeriod: 3000,
+                });
+                mqttClient.on('connect', () => {
+                    state.mqttConnected = true;
+                    updateStatusIndicators();
+                    showToast('MQTT Terhubung', 'success');
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
+                });
+                mqttClient.on('message', (topic, payload) => {
+                    try {
+                        const data = JSON.parse(payload.toString());
+                        handleMqttMessage(topic, data);
+                    } catch (e) { /* ignore */ }
+                });
+                mqttClient.on('close', () => {
+                    state.mqttConnected = false;
+                    updateStatusIndicators();
+                    showToast('MQTT Terputus', 'error');
+                });
+                mqttClient.on('error', () => {
+                    state.mqttConnected = false;
+                    updateStatusIndicators();
+                });
+            } catch (e) {
+                state.mqttConnected = false;
+                updateStatusIndicators();
+            }
+        }
+
+        function handleMqttMessage(topic, data) {
+            switch (topic) {
+                case CONFIG.MQTT_TOPICS.SENSOR_SHT31:
+                    if (data.temperature !== undefined) state.temp = data.temperature;
+                    if (data.humidity !== undefined) state.hum = data.humidity;
+                    updateStats('temp', state.temp);
+                    updateStats('hum', state.hum);
+                    updateSensorDisplay();
+                    updateGauges();
+                    updateChartData();
+                    updateTable();
+                    break;
+                case CONFIG.MQTT_TOPICS.SENSOR_MQ135:
+                    if (data.nh3 !== undefined) state.nh3 = data.nh3;
+                    updateStats('nh3', state.nh3);
+                    updateSensorDisplay();
+                    updateGauges();
+                    updateChartData();
+                    updateTable();
+                    break;
+                case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
+                    if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
+                    if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
+                    if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
+                    if (data.peltierOn !== undefined) state.peltierOn = data.peltierOn;
+                    if (data.fanOn !== undefined) state.fanOn = data.fanOn;
+                    if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
+                    if (data.mode !== undefined) state.mode = data.mode;
+                    updateChartData();
+                    updateTable();
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        // =============================================================
+        // 7. SIMULASI DATA
+        // =============================================================
+        let simulationInterval = null;
+
+        function startSimulation() {
+            if (simulationInterval) return;
+            simulationInterval = setInterval(() => {
+                state.temp += randomBetween(-0.15, 0.15);
+                state.temp = clamp(state.temp, 24, 32);
+                state.hum += randomBetween(-0.3, 0.3);
+                state.hum = clamp(state.hum, 55, 92);
+                state.nh3 += randomBetween(-0.2, 0.2);
+                state.nh3 = clamp(state.nh3, 0, 30);
+
+                // Simulasi kontrol sederhana
+                if (state.mode === 'AUTO') {
+                    const err = 27.5 - state.temp;
+                    if (err > 1) {
+                        state.peltierPwm = clamp(err * 8, 10, 100);
+                        state.peltierOn = true;
+                        state.fanPwm = clamp(err * 4, 10, 100);
+                        state.fanOn = true;
+                        state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.5, 10, 100) : 0;
+                        state.coolFanOn = state.coolFanPwm > 5;
+                    } else if (err < -1) {
+                        state.peltierPwm = clamp(Math.abs(err) * 8, 10, 100);
+                        state.peltierOn = true;
+                        state.fanPwm = clamp(Math.abs(err) * 3, 10, 100);
+                        state.fanOn = true;
+                        state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.4, 10, 100) : 0;
+                        state.coolFanOn = state.coolFanPwm > 5;
+                    } else {
+                        state.peltierPwm = 0;
+                        state.peltierOn = false;
+                        state.fanPwm = 0;
+                        state.fanOn = false;
+                        state.coolFanPwm = 0;
+                        state.coolFanOn = false;
+                    }
+                }
+
+                updateStats('temp', state.temp);
+                updateStats('hum', state.hum);
+                updateStats('nh3', state.nh3);
+                updateSensorDisplay();
+                updateGauges();
+                updateChartData();
+                updateTable();
+                updateStatusIndicators();
+            }, CONFIG.INTERVAL_SAMPLE);
+        }
+
+        // =============================================================
+        // 8. STATISTICS
+        // =============================================================
+        function updateStats(key, val) {
+            if (key === 'temp') {
+                state.tempSum += val;
+                state.tempCount++;
+                if (val < state.tempMin) state.tempMin = val;
+                if (val > state.tempMax) state.tempMax = val;
+                document.getElementById('tempMin').textContent = state.tempMin.toFixed(1);
+                document.getElementById('tempMax').textContent = state.tempMax.toFixed(1);
+                document.getElementById('tempAvg').textContent = (state.tempSum / state.tempCount).toFixed(1);
+            } else if (key === 'hum') {
+                state.humSum += val;
+                state.humCount++;
+                if (val < state.humMin) state.humMin = val;
+                if (val > state.humMax) state.humMax = val;
+                document.getElementById('humMin').textContent = state.humMin.toFixed(1);
+                document.getElementById('humMax').textContent = state.humMax.toFixed(1);
+                document.getElementById('humAvg').textContent = (state.humSum / state.humCount).toFixed(1);
+            } else if (key === 'nh3') {
+                state.nh3Sum += val;
+                state.nh3Count++;
+                if (val < state.nh3Min) state.nh3Min = val;
+                if (val > state.nh3Max) state.nh3Max = val;
+                document.getElementById('nh3Min').textContent = state.nh3Min.toFixed(1);
+                document.getElementById('nh3Max').textContent = state.nh3Max.toFixed(1);
+                document.getElementById('nh3Avg').textContent = (state.nh3Sum / state.nh3Count).toFixed(1);
+            }
+        }
+
+        // =============================================================
+        // 9. UI UPDATE
+        // =============================================================
+        function updateSensorDisplay() {
+            const t = state.temp,
+                h = state.hum,
+                n = state.nh3;
+            document.getElementById('gaugeTempVal').textContent = t.toFixed(1);
+            document.getElementById('gaugeHumVal').textContent = h.toFixed(1);
+            document.getElementById('gaugeNh3Val').textContent = n.toFixed(1);
+
+            // Progress
+            const tempPct = ((t - 24) / (29 - 24)) * 100;
+            document.getElementById('tempProgress').style.width = clamp(tempPct, 0, 100) + '%';
+            document.getElementById('tempProgress').style.background = t > 29 ? '#e74c3c' : t < 26 ? '#f1c40f' : '#2a9d8f';
+            const humPct = ((h - 60) / (90 - 60)) * 100;
+            document.getElementById('humProgress').style.width = clamp(humPct, 0, 100) + '%';
+            document.getElementById('humProgress').style.background = h > 90 ? '#e74c3c' : h < 60 ? '#f1c40f' : '#3498db';
+            const nh3Pct = (n / 25) * 100;
+            document.getElementById('nh3Progress').style.width = clamp(nh3Pct, 0, 100) + '%';
+            document.getElementById('nh3Progress').style.background = n > 25 ? '#e74c3c' : n > 15 ? '#f1c40f' : '#2a9d8f';
+
+            // Badges
+            const tempBadge = document.getElementById('tempBadge');
+            tempBadge.textContent = t > 29 ? 'Panas' : t < 26 ? 'Dingin' : 'Normal';
+            tempBadge.className = `status-badge ${t > 29 ? 'danger' : t < 26 ? 'warning' : 'normal'}`;
+            const humBadge = document.getElementById('humBadge');
+            humBadge.textContent = h > 90 ? 'Basah' : h < 60 ? 'Kering' : 'Normal';
+            humBadge.className = `status-badge ${h > 90 ? 'danger' : h < 60 ? 'warning' : 'normal'}`;
+            const nh3Badge = document.getElementById('nh3Badge');
+            nh3Badge.textContent = n > 25 ? 'Berbahaya' : n > 15 ? 'Waspada' : 'Normal';
+            nh3Badge.className = `status-badge ${n > 25 ? 'danger' : n > 15 ? 'warning' : 'normal'}`;
+        }
+
+        function updateStatusIndicators() {
+            const setDot = (id, online) => {
+                const el = document.getElementById(id);
+                if (el) el.className = `dot ${online ? 'online' : 'offline'}`;
+            };
+            setDot('wifiDot', state.wifiConnected);
+            setDot('mqttDot', state.mqttConnected);
+            setDot('sheetDot', state.sheetConnected);
+        }
+
+        // =============================================================
+        // 10. GAUGES
+        // =============================================================
+        function drawGauge(canvasId, value, min, max, color) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.parentElement.getBoundingClientRect();
+            const size = Math.min(rect.width || 160, rect.height || 160);
+            canvas.width = size * 2;
+            canvas.height = size * 2;
+            const cx = canvas.width / 2,
+                cy = canvas.height / 2,
+                r = canvas.width / 2 - 24;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const v = clamp(value, min, max);
+            const pct = (v - min) / (max - min);
+            const startAngle = -Math.PI * 0.75;
+            const endAngle = Math.PI * 0.75;
+            const angle = startAngle + pct * (endAngle - startAngle);
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, startAngle, endAngle);
+            ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+            ctx.lineWidth = 16;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            const c = color || '#2a9d8f';
+            grad.addColorStop(0, c);
+            grad.addColorStop(1, c);
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, startAngle, angle);
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = 16;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.08)';
+            ctx.fill();
+        }
+
+        function updateGauges() {
+            drawGauge('gaugeTemp', state.temp, 20, 35, '#2a9d8f');
+            drawGauge('gaugeHum', state.hum, 40, 100, '#3498db');
+            drawGauge('gaugeNh3', state.nh3, 0, 40, '#f1c40f');
+        }
+
+        // =============================================================
+        // 11. CHART
+        // =============================================================
+        let chart = null;
+
+        function initChart() {
+            const ctx = document.getElementById('monitoringChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: state.chartData.labels,
+                    datasets: [{
+                        label: 'Suhu (°C)',
+                        data: state.chartData.temp,
+                        borderColor: '#2a9d8f',
+                        backgroundColor: 'rgba(42,157,143,0.05)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true,
+                    }, {
+                        label: 'Kelembaban (%)',
+                        data: state.chartData.hum,
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52,152,219,0.05)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true,
+                    }, {
+                        label: 'NH₃ (ppm)',
+                        data: state.chartData.nh3,
+                        borderColor: '#f1c40f',
+                        backgroundColor: 'rgba(241,196,15,0.05)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true,
+                    }, {
+                        label: 'PWM Peltier (%)',
+                        data: state.chartData.pwmPeltier,
+                        borderColor: '#e74c3c',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        borderDash: [4, 4],
+                    }, {
+                        label: 'PWM Fan (%)',
+                        data: state.chartData.pwmFan,
+                        borderColor: '#e67e22',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        borderDash: [4, 4],
+                    }, {
+                        label: 'PWM Cool Fan (%)',
+                        data: state.chartData.pwmCool,
+                        borderColor: '#9b59b6',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        borderDash: [4, 4],
+                    }, ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#8892a8', font: { size: 10, family: 'Poppins' }, boxWidth: 12,
+                                padding: 8 }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: 'rgba(11,14,20,0.9)',
+                            borderColor: 'rgba(255,255,255,0.06)',
+                            borderWidth: 1,
+                            titleColor: '#e8edf5',
+                            bodyColor: '#8892a8',
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255,255,255,0.03)' },
+                            ticks: { color: '#4a5268', maxTicksLimit: 10, font: { size: 9 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255,255,255,0.03)' },
+                            ticks: { color: '#4a5268', font: { size: 9 } }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index',
+                    }
+                }
+            });
+        }
+
+        function updateChartData() {
+            if (!chart) return;
+            const now = formatTime();
+            const maxPoints = 200;
+            state.chartData.labels.push(now);
+            state.chartData.temp.push(state.temp);
+            state.chartData.hum.push(state.hum);
+            state.chartData.nh3.push(state.nh3);
+            state.chartData.pwmPeltier.push(state.peltierPwm);
+            state.chartData.pwmFan.push(state.fanPwm);
+            state.chartData.pwmCool.push(state.coolFanPwm);
+
+            if (state.chartData.labels.length > maxPoints) {
+                state.chartData.labels.shift();
+                state.chartData.temp.shift();
+                state.chartData.hum.shift();
+                state.chartData.nh3.shift();
+                state.chartData.pwmPeltier.shift();
+                state.chartData.pwmFan.shift();
+                state.chartData.pwmCool.shift();
+            }
+
+            chart.data.labels = state.chartData.labels;
+            chart.data.datasets[0].data = state.chartData.temp;
+            chart.data.datasets[1].data = state.chartData.hum;
+            chart.data.datasets[2].data = state.chartData.nh3;
+            chart.data.datasets[3].data = state.chartData.pwmPeltier;
+            chart.data.datasets[4].data = state.chartData.pwmFan;
+            chart.data.datasets[5].data = state.chartData.pwmCool;
+            chart.update('none');
+        }
+
+        // =============================================================
+        // 12. TABLE
+        // =============================================================
+        function updateTable() {
+            const tbody = document.getElementById('dataTableBody');
+            const now = formatTime();
+            const row = `
+            <tr>
+              <td>${now}</td>
+              <td>${state.temp.toFixed(1)}</td>
+              <td>${state.hum.toFixed(1)}</td>
+              <td>${state.nh3.toFixed(1)}</td>
+              <td>${state.peltierPwm.toFixed(0)}</td>
+              <td>${state.fanPwm.toFixed(0)}</td>
+              <td>${state.coolFanPwm.toFixed(0)}</td>
+              <td>${state.mode}</td>
+            </tr>
+          `;
+            state.tableData.unshift({ time: now, temp: state.temp, hum: state.hum, nh3: state.nh3, peltier: state
+                    .peltierPwm, fan: state.fanPwm, cool: state.coolFanPwm, mode: state.mode });
+            if (state.tableData.length > 20) state.tableData.pop();
+            tbody.innerHTML = state.tableData.map(d => `
+            <tr>
+              <td>${d.time}</td>
+              <td>${d.temp.toFixed(1)}</td>
+              <td>${d.hum.toFixed(1)}</td>
+              <td>${d.nh3.toFixed(1)}</td>
+              <td>${d.peltier.toFixed(0)}</td>
+              <td>${d.fan.toFixed(0)}</td>
+              <td>${d.cool.toFixed(0)}</td>
+              <td>${d.mode}</td>
+            </tr>
+          `).join('');
+        }
+
+        // =============================================================
+        // 13. CHART RANGE BUTTONS
+        // =============================================================
+        document.querySelectorAll('[data-range]').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                showToast(`Menampilkan ${this.dataset.range}`, 'info');
+            });
+        });
+
+        // =============================================================
+        // 14. INIT
+        // =============================================================
+        function init() {
+            state.temp = 27.3;
+            state.hum = 74.8;
+            state.nh3 = 4.2;
+            state.tempMin = state.tempMax = state.temp;
+            state.humMin = state.humMax = state.hum;
+            state.nh3Min = state.nh3Max = state.nh3;
+
+            updateSensorDisplay();
+            updateGauges();
+            updateStatusIndicators();
+            initChart();
+            connectMQTT();
+            startSimulation();
+
+            // Inisialisasi statistik
+            document.getElementById('tempMin').textContent = state.temp.toFixed(1);
+            document.getElementById('tempMax').textContent = state.temp.toFixed(1);
+            document.getElementById('tempAvg').textContent = state.temp.toFixed(1);
+            document.getElementById('humMin').textContent = state.hum.toFixed(1);
+            document.getElementById('humMax').textContent = state.hum.toFixed(1);
+            document.getElementById('humAvg').textContent = state.hum.toFixed(1);
+            document.getElementById('nh3Min').textContent = state.nh3.toFixed(1);
+            document.getElementById('nh3Max').textContent = state.nh3.toFixed(1);
+            document.getElementById('nh3Avg').textContent = state.nh3.toFixed(1);
+
+            setTimeout(() => {
+                document.getElementById('loading-screen').classList.add('hide');
+            }, 600);
+            setTimeout(() => {
+                showToast('Monitoring siap', 'success');
+            }, 1000);
+
+            // Auto reconnect MQTT
+            setInterval(() => {
+                if (!state.mqttConnected && mqttClient) {
+                    try { mqttClient.reconnect(); } catch (e) {}
+                }
+                updateStatusIndicators();
+            }, 10000);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        // Ekspos untuk debug
+        window.__state = state;
+        window.__config = CONFIG;
+        console.log('📊 Monitoring Page Loaded');
+    </script>
+
+</body>
+</html>

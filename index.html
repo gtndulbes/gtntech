@@ -1,0 +1,2458 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IoT Kandang Ulat Hongkong</title>
+    <script src="https://cdn.tailwindcss.com">
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js">
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
+    </script>
+    <script src="assets/js/mqtt-config.js">
+    </script>
+    <style>
+        /* ===== RESET & BASE ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #0b0e14;
+            color: #e8edf5;
+            overflow-x: hidden;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1a1f2b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2a9d8f;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #21867a;
+        }
+
+        /* ===== GLASSMORPHISM ===== */
+        .glass {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+        }
+        .glass-light {
+            background: rgba(255, 255, 255, 0.07);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* ===== SIDEBAR ===== */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 76px;
+            height: 100vh;
+            background: rgba(11, 14, 20, 0.92);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            z-index: 1000;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: 16px 0;
+        }
+        .sidebar:hover {
+            width: 240px;
+        }
+        .sidebar .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0 18px 24px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 16px;
+            white-space: nowrap;
+        }
+        .sidebar .logo i {
+            font-size: 28px;
+            color: #2a9d8f;
+            min-width: 40px;
+            text-align: center;
+        }
+        .sidebar .logo span {
+            font-size: 18px;
+            font-weight: 700;
+            color: #e8edf5;
+            opacity: 0;
+            transition: opacity 0.25s;
+        }
+        .sidebar:hover .logo span {
+            opacity: 1;
+        }
+        .sidebar .nav {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 8px;
+        }
+        .sidebar .nav a {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 14px;
+            margin-bottom: 4px;
+            border-radius: 12px;
+            color: #8892a8;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            white-space: nowrap;
+            position: relative;
+        }
+        .sidebar .nav a i {
+            font-size: 20px;
+            min-width: 36px;
+            text-align: center;
+        }
+        .sidebar .nav a span {
+            opacity: 0;
+            transition: opacity 0.25s;
+        }
+        .sidebar:hover .nav a span {
+            opacity: 1;
+        }
+        .sidebar .nav a:hover {
+            background: rgba(42, 157, 143, 0.15);
+            color: #e8edf5;
+        }
+        .sidebar .nav a.active {
+            background: rgba(42, 157, 143, 0.20);
+            color: #2a9d8f;
+            box-shadow: inset 3px 0 0 #2a9d8f;
+        }
+        .sidebar .nav a .badge {
+            margin-left: auto;
+            background: #2a9d8f;
+            color: #fff;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 20px;
+            opacity: 0;
+            transition: opacity 0.25s;
+        }
+        .sidebar:hover .nav a .badge {
+            opacity: 1;
+        }
+
+        /* ===== MAIN CONTENT ===== */
+        .main-content {
+            margin-left: 76px;
+            min-height: 100vh;
+            padding: 20px 24px 40px;
+            transition: margin-left 0.3s;
+        }
+        @media (min-width: 1024px) {
+            .sidebar:hover~.main-content {
+                margin-left: 240px;
+            }
+        }
+
+        /* ===== TOP NAVBAR ===== */
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding: 12px 20px;
+            background: rgba(11, 14, 20, 0.7);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            margin-bottom: 24px;
+        }
+        .topbar .left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .topbar .left .menu-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: #e8edf5;
+            font-size: 22px;
+            cursor: pointer;
+        }
+        .topbar .left h1 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .topbar .left h1 small {
+            font-weight: 400;
+            font-size: 13px;
+            color: #8892a8;
+        }
+        .topbar .right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .topbar .right .status-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #8892a8;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 4px 12px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .topbar .right .status-item .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .topbar .right .status-item .dot.online {
+            background: #2a9d8f;
+            box-shadow: 0 0 8px rgba(42, 157, 143, 0.5);
+        }
+        .topbar .right .status-item .dot.offline {
+            background: #e74c3c;
+            box-shadow: 0 0 8px rgba(231, 76, 60, 0.4);
+        }
+        .topbar .right .clock {
+            font-size: 15px;
+            font-weight: 500;
+            color: #e8edf5;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 4px 14px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            font-variant-numeric: tabular-nums;
+        }
+        .topbar .right .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2a9d8f, #1a6b62);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            color: #fff;
+            cursor: pointer;
+            border: 2px solid rgba(42, 157, 143, 0.3);
+        }
+
+        /* ===== CARDS ===== */
+        .card {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 16px;
+            padding: 20px;
+            transition: all 0.25s;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+        }
+        .card:hover {
+            border-color: rgba(42, 157, 143, 0.2);
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.35);
+            transform: translateY(-2px);
+        }
+        .card .card-title {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #8892a8;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .card .card-title i {
+            font-size: 16px;
+            color: #2a9d8f;
+        }
+
+        /* ===== CHART WRAPPER ===== */
+        .chart-shell {
+            position: relative;
+            width: 100%;
+            height: 260px;
+            max-height: 260px;
+            overflow: hidden;
+        }
+        .chart-shell canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* ===== SENSOR VALUE ===== */
+        .sensor-value {
+            font-size: 36px;
+            font-weight: 700;
+            line-height: 1.1;
+        }
+        .sensor-value .unit {
+            font-size: 18px;
+            font-weight: 400;
+            color: #8892a8;
+            margin-left: 4px;
+        }
+        .sensor-value .status-badge {
+            font-size: 12px;
+            font-weight: 500;
+            padding: 2px 12px;
+            border-radius: 30px;
+            margin-left: 10px;
+        }
+        .status-badge.normal {
+            background: rgba(42, 157, 143, 0.2);
+            color: #2a9d8f;
+        }
+        .status-badge.warning {
+            background: rgba(241, 196, 15, 0.2);
+            color: #f1c40f;
+        }
+        .status-badge.danger {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+        }
+
+        /* ===== PROGRESS BAR ===== */
+        .progress-track {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .progress-track .progress-fill {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.4s ease;
+        }
+
+        /* ===== GAUGE ===== */
+        .gauge-wrap {
+            position: relative;
+            width: 140px;
+            height: 140px;
+            margin: 0 auto;
+        }
+        .gauge-wrap canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        .gauge-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        .gauge-center .val {
+            font-size: 28px;
+            font-weight: 700;
+            line-height: 1;
+        }
+        .gauge-center .lbl {
+            font-size: 11px;
+            color: #8892a8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* ===== ACTUATOR CARD ===== */
+        .actuator-card {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            transition: all 0.25s;
+        }
+        .actuator-card .icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            background: rgba(42, 157, 143, 0.12);
+            color: #2a9d8f;
+            flex-shrink: 0;
+        }
+        .actuator-card .info {
+            flex: 1;
+        }
+        .actuator-card .info .name {
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .actuator-card .info .detail {
+            font-size: 12px;
+            color: #8892a8;
+        }
+        .actuator-card .status-led {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            transition: all 0.3s;
+        }
+        .actuator-card .status-led.on {
+            background: #2a9d8f;
+            box-shadow: 0 0 16px rgba(42, 157, 143, 0.5);
+        }
+        .actuator-card .status-led.off {
+            background: #555;
+        }
+
+        /* ===== LED INDICATOR ===== */
+        .led {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .led .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .led .dot.green {
+            background: #2a9d8f;
+            box-shadow: 0 0 12px rgba(42, 157, 143, 0.5);
+        }
+        .led .dot.yellow {
+            background: #f1c40f;
+            box-shadow: 0 0 12px rgba(241, 196, 15, 0.4);
+        }
+        .led .dot.red {
+            background: #e74c3c;
+            box-shadow: 0 0 12px rgba(231, 76, 60, 0.4);
+        }
+
+        /* ===== ALARM ===== */
+        .alarm-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            background: rgba(255, 255, 255, 0.02);
+            border-left: 3px solid transparent;
+        }
+        .alarm-item.active {
+            border-left-color: #e74c3c;
+            background: rgba(231, 76, 60, 0.06);
+        }
+        .alarm-item .icon {
+            width: 28px;
+            text-align: center;
+            color: #8892a8;
+        }
+        .alarm-item .icon.danger {
+            color: #e74c3c;
+        }
+
+        /* ===== NOTIFICATION ===== */
+        .notif-item {
+            padding: 10px 14px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.02);
+            border-left: 3px solid #2a9d8f;
+            margin-bottom: 6px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .notif-item .time {
+            font-size: 11px;
+            color: #8892a8;
+            margin-left: auto;
+            white-space: nowrap;
+        }
+
+        /* ===== HEALTH METER ===== */
+        .health-ring {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: 700;
+            position: relative;
+            margin: 0 auto;
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 0;
+                padding: 0;
+                overflow: hidden;
+                border-right: none;
+            }
+            .sidebar.open {
+                width: 240px;
+                padding: 16px 0;
+            }
+            .main-content {
+                margin-left: 0;
+            }
+            .topbar .left .menu-toggle {
+                display: block;
+            }
+            .topbar .left h1 small {
+                display: none;
+            }
+        }
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 12px 12px 32px;
+            }
+            .topbar {
+                padding: 10px 14px;
+            }
+            .topbar .right .status-item span {
+                display: none;
+            }
+            .topbar .right .clock {
+                font-size: 13px;
+                padding: 2px 10px;
+            }
+            .sensor-value {
+                font-size: 28px;
+            }
+            .gauge-wrap {
+                width: 100px;
+                height: 100px;
+            }
+            .gauge-center .val {
+                font-size: 20px;
+            }
+        }
+        @media (max-width: 480px) {
+            .topbar .left h1 {
+                font-size: 15px;
+            }
+            .topbar .right .status-item {
+                padding: 2px 8px;
+                font-size: 10px;
+            }
+            .card {
+                padding: 14px;
+            }
+        }
+
+        /* ===== ANIMATIONS ===== */
+        @keyframes pulse-green {
+            0%,
+            100% {
+                box-shadow: 0 0 12px rgba(42, 157, 143, 0.3);
+            }
+            50% {
+                box-shadow: 0 0 24px rgba(42, 157, 143, 0.7);
+            }
+        }
+        .pulse-green {
+            animation: pulse-green 2s ease-in-out infinite;
+        }
+        @keyframes spin-slow {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        .spin-slow {
+            animation: spin-slow 6s linear infinite;
+        }
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .fade-in-up {
+            animation: fadeInUp 0.5s ease forwards;
+        }
+
+        /* ===== TOGGLE SWITCH ===== */
+        .toggle {
+            width: 44px;
+            height: 24px;
+            background: #2a2f3a;
+            border-radius: 30px;
+            cursor: pointer;
+            position: relative;
+            transition: 0.3s;
+            flex-shrink: 0;
+            border: none;
+        }
+        .toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: #8892a8;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+        .toggle.on {
+            background: rgba(42, 157, 143, 0.4);
+        }
+        .toggle.on::after {
+            left: 22px;
+            background: #2a9d8f;
+            box-shadow: 0 0 12px rgba(42, 157, 143, 0.4);
+        }
+
+        /* ===== SLIDER ===== */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 4px;
+            border-radius: 10px;
+            background: #2a2f3a;
+            outline: none;
+            transition: 0.2s;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #2a9d8f;
+            cursor: pointer;
+            box-shadow: 0 0 12px rgba(42, 157, 143, 0.3);
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #2a9d8f;
+            cursor: pointer;
+            border: none;
+        }
+
+        /* ===== LOADING ===== */
+        #loading-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: #0b0e14;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.8s, visibility 0.8s;
+        }
+        #loading-screen.hide {
+            opacity: 0;
+            visibility: hidden;
+        }
+        #loading-screen .spinner {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: 4px solid rgba(42, 157, 143, 0.15);
+            border-top-color: #2a9d8f;
+            animation: spin-slow 1s linear infinite;
+        }
+        #loading-screen p {
+            margin-top: 20px;
+            color: #8892a8;
+            font-weight: 500;
+            letter-spacing: 1px;
+        }
+
+        /* ===== TOAST ===== */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9998;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 380px;
+            width: 100%;
+        }
+        .toast {
+            padding: 14px 18px;
+            border-radius: 12px;
+            background: rgba(20, 25, 35, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideInRight 0.4s ease;
+            font-size: 13px;
+        }
+        .toast .icon {
+            font-size: 18px;
+        }
+        .toast .icon.success {
+            color: #2a9d8f;
+        }
+        .toast .icon.error {
+            color: #e74c3c;
+        }
+        .toast .icon.warning {
+            color: #f1c40f;
+        }
+        .toast .icon.info {
+            color: #3498db;
+        }
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(60px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        .toast.hide {
+            opacity: 0;
+            transform: translateX(60px);
+            transition: 0.3s;
+        }
+
+        /* ===== BREADCRUMB ===== */
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #8892a8;
+            flex-wrap: wrap;
+        }
+        .breadcrumb a {
+            color: #8892a8;
+            text-decoration: none;
+            transition: 0.2s;
+        }
+        .breadcrumb a:hover {
+            color: #2a9d8f;
+        }
+        .breadcrumb .sep {
+            color: #3a4050;
+        }
+        .breadcrumb .current {
+            color: #e8edf5;
+        }
+
+        /* ===== MODAL ===== */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9997;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .modal-overlay.show {
+            display: flex;
+        }
+        .modal-box {
+            background: #161c26;
+            border-radius: 20px;
+            padding: 32px;
+            max-width: 480px;
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+            animation: fadeInUp 0.3s ease;
+        }
+        .modal-box h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .modal-box p {
+            color: #8892a8;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .modal-box .actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .modal-box .actions button {
+            padding: 10px 24px;
+            border-radius: 10px;
+            border: none;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .modal-box .actions .btn-secondary {
+            background: rgba(255, 255, 255, 0.06);
+            color: #e8edf5;
+        }
+        .modal-box .actions .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        .modal-box .actions .btn-primary {
+            background: #2a9d8f;
+            color: #fff;
+        }
+        .modal-box .actions .btn-primary:hover {
+            background: #21867a;
+        }
+        .modal-box .actions .btn-danger {
+            background: #e74c3c;
+            color: #fff;
+        }
+        .modal-box .actions .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        /* Utility */
+        .text-neon {
+            color: #2a9d8f;
+        }
+        .border-neon {
+            border-color: rgba(42, 157, 143, 0.3);
+        }
+        .bg-neon-dark {
+            background: rgba(42, 157, 143, 0.08);
+        }
+        .gap-2 {
+            gap: 8px;
+        }
+        .gap-3 {
+            gap: 12px;
+        }
+        .gap-4 {
+            gap: 16px;
+        }
+        .gap-6 {
+            gap: 24px;
+        }
+        .flex-wrap {
+            flex-wrap: wrap;
+        }
+        .items-center {
+            align-items: center;
+        }
+        .justify-between {
+            justify-content: space-between;
+        }
+        .text-center {
+            text-align: center;
+        }
+        .w-full {
+            width: 100%;
+        }
+        .grid-cols-1 {
+            grid-template-columns: 1fr;
+        }
+        .grid-cols-2 {
+            grid-template-columns: 1fr 1fr;
+        }
+        .grid-cols-3 {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+        .grid-cols-4 {
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+        }
+        .grid-cols-5 {
+            grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+        }
+        .col-span-2 {
+            grid-column: span 2;
+        }
+        .col-span-3 {
+            grid-column: span 3;
+        }
+        .col-span-4 {
+            grid-column: span 4;
+        }
+        .mt-2 {
+            margin-top: 8px;
+        }
+        .mt-3 {
+            margin-top: 12px;
+        }
+        .mt-4 {
+            margin-top: 16px;
+        }
+        .mt-6 {
+            margin-top: 24px;
+        }
+        .mb-2 {
+            margin-bottom: 8px;
+        }
+        .mb-3 {
+            margin-bottom: 12px;
+        }
+        .mb-4 {
+            margin-bottom: 16px;
+        }
+        .mb-6 {
+            margin-bottom: 24px;
+        }
+        .p-0 {
+            padding: 0;
+        }
+        .p-2 {
+            padding: 8px;
+        }
+        .p-3 {
+            padding: 12px;
+        }
+        .p-4 {
+            padding: 16px;
+        }
+        .p-6 {
+            padding: 24px;
+        }
+        .text-xs {
+            font-size: 11px;
+        }
+        .text-sm {
+            font-size: 13px;
+        }
+        .text-base {
+            font-size: 15px;
+        }
+        .text-lg {
+            font-size: 17px;
+        }
+        .text-xl {
+            font-size: 20px;
+        }
+        .text-2xl {
+            font-size: 24px;
+        }
+        .text-3xl {
+            font-size: 30px;
+        }
+        .font-medium {
+            font-weight: 500;
+        }
+        .font-semibold {
+            font-weight: 600;
+        }
+        .font-bold {
+            font-weight: 700;
+        }
+        .opacity-60 {
+            opacity: 0.6;
+        }
+        .opacity-80 {
+            opacity: 0.8;
+        }
+        .relative {
+            position: relative;
+        }
+        .hidden {
+            display: none !important;
+        }
+        .block {
+            display: block;
+        }
+        .flex {
+            display: flex;
+        }
+        .grid {
+            display: grid;
+        }
+        .gap-2 {
+            gap: 8px;
+        }
+        .gap-3 {
+            gap: 12px;
+        }
+        .gap-4 {
+            gap: 16px;
+        }
+        .gap-6 {
+            gap: 24px;
+        }
+        .grid-cols-1 {
+            grid-template-columns: 1fr;
+        }
+        .grid-cols-2 {
+            grid-template-columns: 1fr 1fr;
+        }
+        .grid-cols-3 {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+        .grid-cols-4 {
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+        }
+        @media (min-width: 640px) {
+            .sm\:grid-cols-2 {
+                grid-template-columns: 1fr 1fr;
+            }
+            .sm\:grid-cols-3 {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            .sm\:flex-row {
+                flex-direction: row;
+            }
+        }
+        @media (min-width: 768px) {
+            .md\:grid-cols-2 {
+                grid-template-columns: 1fr 1fr;
+            }
+            .md\:grid-cols-3 {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            .md\:grid-cols-4 {
+                grid-template-columns: 1fr 1fr 1fr 1fr;
+            }
+            .md\:col-span-2 {
+                grid-column: span 2;
+            }
+        }
+        @media (min-width: 1024px) {
+            .lg\:grid-cols-3 {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            .lg\:grid-cols-4 {
+                grid-template-columns: 1fr 1fr 1fr 1fr;
+            }
+            .lg\:grid-cols-5 {
+                grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+            }
+            .lg\:col-span-2 {
+                grid-column: span 2;
+            }
+            .lg\:col-span-3 {
+                grid-column: span 3;
+            }
+        }
+
+        .transition-all {
+            transition: all 0.25s ease;
+        }
+        .cursor-pointer {
+            cursor: pointer;
+        }
+        .rounded-full {
+            border-radius: 9999px;
+        }
+        .rounded-xl {
+            border-radius: 12px;
+        }
+        .rounded-2xl {
+            border-radius: 16px;
+        }
+        .overflow-hidden {
+            overflow: hidden;
+        }
+        .border {
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .border-t {
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .bg-white\/5 {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .bg-white\/10 {
+            background: rgba(255, 255, 255, 0.10);
+        }
+        .text-gray-400 {
+            color: #8892a8;
+        }
+        .text-gray-500 {
+            color: #6a7288;
+        }
+        .text-white {
+            color: #e8edf5;
+        }
+        .text-green-400 {
+            color: #2a9d8f;
+        }
+        .text-yellow-400 {
+            color: #f1c40f;
+        }
+        .text-red-400 {
+            color: #e74c3c;
+        }
+        .text-blue-400 {
+            color: #3498db;
+        }
+        .bg-green-500\/20 {
+            background: rgba(42, 157, 143, 0.2);
+        }
+        .bg-yellow-500\/20 {
+            background: rgba(241, 196, 15, 0.2);
+        }
+        .bg-red-500\/20 {
+            background: rgba(231, 76, 60, 0.2);
+        }
+        .bg-blue-500\/20 {
+            background: rgba(52, 152, 219, 0.2);
+        }
+        .border-green-500\/20 {
+            border-color: rgba(42, 157, 143, 0.2);
+        }
+        .border-yellow-500\/20 {
+            border-color: rgba(241, 196, 15, 0.2);
+        }
+        .border-red-500\/20 {
+            border-color: rgba(231, 76, 60, 0.2);
+        }
+        .border-blue-500\/20 {
+            border-color: rgba(52, 152, 219, 0.2);
+        }
+        .hover\:bg-white\/10:hover {
+            background: rgba(255, 255, 255, 0.10);
+        }
+        .hover\:border-green-500\/30:hover {
+            border-color: rgba(42, 157, 143, 0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== LOADING SCREEN ===== -->
+    <div id="loading-screen">
+        <div class="spinner"></div>
+        <p>⏳ Memuat Dashboard ...</p>
+    </div>
+
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="sidebar" id="sidebar">
+        <div class="logo">
+            <i class="fas fa-bug"></i>
+            <span>IoT Ulat</span>
+        </div>
+        <nav class="nav">
+            <a href="index.html" class="active"><i class="fas fa-home"></i><span>Dashboard</span></a>
+            <a href="monitoring.html"><i class="fas fa-chart-line"></i><span>Monitoring</span></a>
+            <a href="control.html"><i class="fas fa-sliders-h"></i><span>Kontrol</span></a>
+            <a href="fuzzy.html"><i class="fas fa-brain"></i><span>Fuzzy PID</span></a>
+            <a href="self-monitoring.html"><i class="fas fa-heartbeat"></i><span>Self Monitoring</span></a>
+            <a href="history.html"><i class="fas fa-database"></i><span>Data Logger</span></a>
+            <a href="settings.html"><i class="fas fa-cog"></i><span>Settings</span></a>
+            <a href="about.html"><i class="fas fa-user"></i><span>About</span></a>
+        </nav>
+        <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:#4a5268;text-align:center;">
+            v2.0.0
+        </div>
+    </aside>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <div class="main-content" id="mainContent">
+
+        <!-- ===== TOPBAR ===== -->
+        <header class="topbar">
+            <div class="left">
+                <button class="menu-toggle" id="menuToggle" aria-label="Toggle Sidebar">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <h1>
+                    🐛 IoT Kandang Ulat
+                    <small>— Monitoring &amp; Kontrol</small>
+                </h1>
+            </div>
+            <div class="right">
+                <div class="status-item">
+                    <span class="dot online" id="wifiDot"></span>
+                    <span>WiFi</span>
+                </div>
+                <div class="status-item">
+                    <span class="dot online" id="mqttDot"></span>
+                    <span>MQTT</span>
+                </div>
+                <div class="status-item">
+                    <span class="dot online" id="sheetDot"></span>
+                    <span>Spreadsheet</span>
+                </div>
+                <div class="clock" id="clock">--:--:--</div>
+                <div class="avatar">MR</div>
+            </div>
+        </header>
+
+        <!-- ===== BREADCRUMB ===== -->
+        <div class="breadcrumb mb-4">
+            <a href="#">🏠</a>
+            <span class="sep">/</span>
+            <span class="current">Dashboard</span>
+        </div>
+
+        <!-- ===== DASHBOARD GRID ===== -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+
+            <!-- Sensor: Suhu -->
+            <div class="card fade-in-up" style="animation-delay:0.05s;">
+                <div class="card-title">
+                    <span><i class="fas fa-thermometer-half mr-2"></i>Suhu</span>
+                    <span class="status-badge normal" id="tempStatusBadge">Normal</span>
+                </div>
+                <div class="sensor-value" id="tempValue">-- <span class="unit">°C</span></div>
+                <div class="progress-track">
+                    <div class="progress-fill" id="tempProgress" style="width:50%;background:#2a9d8f;"></div>
+                </div>
+                <div class="flex justify-between text-xs text-gray-400 mt-1">
+                    <span>24°C</span>
+                    <span>29°C</span>
+                </div>
+            </div>
+
+            <!-- Sensor: Kelembaban -->
+            <div class="card fade-in-up" style="animation-delay:0.10s;">
+                <div class="card-title">
+                    <span><i class="fas fa-tint mr-2"></i>Kelembaban</span>
+                    <span class="status-badge normal" id="humStatusBadge">Normal</span>
+                </div>
+                <div class="sensor-value" id="humValue">-- <span class="unit">%RH</span></div>
+                <div class="progress-track">
+                    <div class="progress-fill" id="humProgress" style="width:50%;background:#3498db;"></div>
+                </div>
+                <div class="flex justify-between text-xs text-gray-400 mt-1">
+                    <span>60%</span>
+                    <span>90%</span>
+                </div>
+            </div>
+
+            <!-- Sensor: NH₃ -->
+            <div class="card fade-in-up" style="animation-delay:0.15s;">
+                <div class="card-title">
+                    <span><i class="fas fa-wind mr-2"></i>NH₃</span>
+                    <span class="status-badge normal" id="nh3StatusBadge">Normal</span>
+                </div>
+                <div class="sensor-value" id="nh3Value">-- <span class="unit">ppm</span></div>
+                <div class="progress-track">
+                    <div class="progress-fill" id="nh3Progress" style="width:10%;background:#f1c40f;"></div>
+                </div>
+                <div class="flex justify-between text-xs text-gray-400 mt-1">
+                    <span>0 ppm</span>
+                    <span>25 ppm</span>
+                </div>
+            </div>
+
+            <!-- System Health -->
+            <div class="card fade-in-up" style="animation-delay:0.20s;">
+                <div class="card-title">
+                    <span><i class="fas fa-medkit mr-2"></i>System Health</span>
+                    <span id="healthLabel" class="text-xs text-green-400">Baik</span>
+                </div>
+                <div class="health-ring" id="healthRing">
+                    <span id="healthValue">--%</span>
+                </div>
+                <div class="text-xs text-gray-400 text-center mt-1">Uptime: <span id="uptime">--</span></div>
+            </div>
+        </div>
+
+        <!-- ===== GAUGE + ACTUATOR ROW ===== -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+
+            <!-- Gauges -->
+            <div class="card lg:col-span-2 fade-in-up" style="animation-delay:0.25s;">
+                <div class="card-title">
+                    <span><i class="fas fa-gauge-high mr-2"></i>Gauge Meter</span>
+                </div>
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="gauge-wrap" id="gaugeTempWrap">
+                        <canvas id="gaugeTemp"></canvas>
+                        <div class="gauge-center">
+                            <div class="val" id="gaugeTempVal">--</div>
+                            <div class="lbl">°C</div>
+                        </div>
+                    </div>
+                    <div class="gauge-wrap" id="gaugeHumWrap">
+                        <canvas id="gaugeHum"></canvas>
+                        <div class="gauge-center">
+                            <div class="val" id="gaugeHumVal">--</div>
+                            <div class="lbl">%RH</div>
+                        </div>
+                    </div>
+                    <div class="gauge-wrap" id="gaugeNh3Wrap">
+                        <canvas id="gaugeNh3"></canvas>
+                        <div class="gauge-center">
+                            <div class="val" id="gaugeNh3Val">--</div>
+                            <div class="lbl">ppm</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Aktuator -->
+            <div class="card fade-in-up" style="animation-delay:0.30s;">
+                <div class="card-title">
+                    <span><i class="fas fa-microchip mr-2"></i>Aktuator</span>
+                    <span class="text-xs text-gray-400" id="actuatorMode">Mode: <strong>AUTO</strong></span>
+                </div>
+                <div class="space-y-3">
+                    <div class="actuator-card">
+                        <div class="icon"><i class="fas fa-snowflake"></i></div>
+                        <div class="info">
+                            <div class="name">Peltier</div>
+                            <div class="detail" id="peltierDetail">OFF · 0%</div>
+                        </div>
+                        <div class="status-led off" id="peltierLed"></div>
+                    </div>
+                    <div class="actuator-card">
+                        <div class="icon"><i class="fas fa-fan"></i></div>
+                        <div class="info">
+                            <div class="name">Kipas Sirkulasi</div>
+                            <div class="detail" id="fanDetail">OFF · 0%</div>
+                        </div>
+                        <div class="status-led off" id="fanLed"></div>
+                    </div>
+                    <div class="actuator-card">
+                        <div class="icon"><i class="fas fa-fan"></i></div>
+                        <div class="info">
+                            <div class="name">Kipas Pendingin</div>
+                            <div class="detail" id="coolFanDetail">OFF · 0%</div>
+                        </div>
+                        <div class="status-led off" id="coolFanLed"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== CHART + STATUS ROW ===== -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+
+            <!-- Chart -->
+            <div class="card lg:col-span-2 fade-in-up" style="animation-delay:0.35s;">
+                <div class="card-title">
+                    <span><i class="fas fa-chart-area mr-2"></i>Realtime Chart</span>
+                    <div class="flex gap-2">
+                        <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-range="1h">1J</button>
+                        <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition active" data-range="24h">24J</button>
+                        <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-range="7d">7H</button>
+                        <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-range="30d">30H</button>
+                    </div>
+                </div>
+                <div class="chart-shell">
+                    <canvas id="realtimeChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Status Sistem -->
+            <div class="card fade-in-up" style="animation-delay:0.40s;">
+                <div class="card-title">
+                    <span><i class="fas fa-server mr-2"></i>Status Sistem</span>
+                </div>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between items-center">
+                        <span>ESP32</span>
+                        <span class="led"><span class="dot green" id="statusEsp"></span> Online</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span>WiFi</span>
+                        <span class="led"><span class="dot green" id="statusWifi"></span> Connected</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span>MQTT</span>
+                        <span class="led"><span class="dot green" id="statusMqtt"></span> Connected</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span>Spreadsheet</span>
+                        <span class="led"><span class="dot green" id="statusSheet"></span> Online</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span>Fuzzy PID</span>
+                        <span class="led"><span class="dot green" id="statusFuzzy"></span> Active</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span>Self Monitoring</span>
+                        <span class="led"><span class="dot green" id="statusSelf"></span> Active</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== ALARM + NOTIFICATION + LOG ===== -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+            <!-- Alarm -->
+            <div class="card fade-in-up" style="animation-delay:0.45s;">
+                <div class="card-title">
+                    <span><i class="fas fa-bell mr-2"></i>Alarm</span>
+                    <span class="text-xs text-gray-400" id="alarmCount">0 aktif</span>
+                </div>
+                <div id="alarmList">
+                    <div class="alarm-item"><span class="icon">✅</span> Semua normal</div>
+                </div>
+            </div>
+
+            <!-- Notifikasi -->
+            <div class="card fade-in-up" style="animation-delay:0.50s;">
+                <div class="card-title">
+                    <span><i class="fas fa-comment-dots mr-2"></i>Notifikasi</span>
+                    <span class="text-xs text-gray-400" id="notifCount">0</span>
+                </div>
+                <div id="notifList" style="max-height:200px;overflow-y:auto;">
+                    <div class="notif-item">
+                        <i class="fas fa-check-circle text-green-400"></i>
+                        <span>Sistem siap</span>
+                        <span class="time">--:--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Log Aktivitas -->
+            <div class="card fade-in-up" style="animation-delay:0.55s;">
+                <div class="card-title">
+                    <span><i class="fas fa-history mr-2"></i>Log Aktivitas</span>
+                </div>
+                <div id="logList" style="max-height:200px;overflow-y:auto;font-size:13px;">
+                    <div class="text-gray-400 text-center py-4">Belum ada aktivitas</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== FOOTER ===== -->
+        <div class="text-center text-xs text-gray-500 mt-8 border-t border-white/5 pt-4">
+            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v2.0.0
+        </div>
+    </div>
+
+    <!-- ===== TOAST CONTAINER ===== -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- ===== MODAL ===== -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-box">
+            <h3 id="modalTitle">Konfirmasi</h3>
+            <p id="modalMessage">Apakah Anda yakin?</p>
+            <div class="actions">
+                <button class="btn-secondary" id="modalCancel">Batal</button>
+                <button class="btn-primary" id="modalConfirm">Ya</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- ===== JAVASCRIPT ===== -->
+    <script>
+        // =============================================================
+        // 1. CONFIGURATION
+        // =============================================================
+        const CONFIG = {
+            MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
+            MQTT_TOPICS: {
+                SENSOR_SHT31: 'sensor/sht31',
+                SENSOR_MQ135: 'sensor/mq135',
+                SENSOR_STATUS: 'sensor/status',
+                SYSTEM_ALARM: 'system/alarm',
+                SELF_MONITOR: 'system/selfmonitor',
+                ACTUATOR_STATUS: 'actuator/status',
+                ACTUATOR_CONTROL: 'actuator/control',
+                SYSTEM_CONTROL: 'system/control',
+                SETTING_UPDATE: 'setting/update',
+            },
+            SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzomrIc68ISrGNVsOTgYI3nPy0kBgQm4WVUCYWfkB8lcwXgBJPbu2j3yxFhoz59VZk9Xw/exec',
+            TELEGRAM_BOT_TOKEN: 'YOUR_BOT_TOKEN',
+            TELEGRAM_CHAT_ID: 'YOUR_CHAT_ID',
+            INTERVAL_SAMPLE: 2000,
+            INTERVAL_LOG: 60000,
+        };
+
+        // =============================================================
+        // 2. STATE
+        // =============================================================
+        const state = {
+            temp: 27.5,
+            hum: 75,
+            nh3: 5,
+            peltierPwm: 0,
+            fanPwm: 0,
+            coolFanPwm: 0,
+            peltierOn: false,
+            fanOn: false,
+            coolFanOn: false,
+            mode: 'AUTO', // AUTO | MANUAL
+            setpointTemp: 27.5,
+            setpointHum: 75,
+            kp: 2.0,
+            ki: 0.5,
+            kd: 0.1,
+            error: 0,
+            deltaError: 0,
+            outputPid: 0,
+            health: 98,
+            uptime: 0,
+            alarms: [],
+            notifications: [],
+            logs: [],
+            mqttConnected: false,
+            wifiConnected: true,
+            sheetConnected: true,
+            chartData: { labels: [], temp: [], hum: [], nh3: [], pwmPeltier: [], pwmFan: [], pwmCool: [] },
+        };
+
+        // =============================================================
+        // 3. UTILITY FUNCTIONS
+        // =============================================================
+        function formatTime(d) {
+            d = d || new Date();
+            return d.toLocaleTimeString('id-ID', { hour12: false });
+        }
+
+        function formatDate(d) {
+            d = d || new Date();
+            return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+        }
+
+        function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
+
+        function randomBetween(min, max) { return Math.random() * (max - min) + min; }
+
+        function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+        function debounce(fn, ms) { let timer; return (...args) => { clearTimeout(timer);
+                timer = setTimeout(() => fn(...args), ms); }; }
+
+        // =============================================================
+        // 4. TOAST NOTIFICATIONS
+        // =============================================================
+        function showToast(message, type = 'info', duration = 4000) {
+            const container = document.getElementById('toastContainer');
+            const icons = { success: 'fa-check-circle', error: 'fa-exclamation-circle', warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info' };
+            const colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
+            const el = document.createElement('div');
+            el.className = 'toast';
+            el.innerHTML = `
+            <span class="icon ${colors[type]}"><i class="fas ${icons[type] || icons.info}"></i></span>
+            <span>${message}</span>
+          `;
+            container.appendChild(el);
+            setTimeout(() => { el.classList.add('hide');
+                setTimeout(() => el.remove(), 400); }, duration);
+        }
+
+        // =============================================================
+        // MQTT Integration
+        // =============================================================
+
+        function initMQTT() {
+            // Register handler untuk setiap topic
+            mqttManager.on(MQTT_CONFIG.TOPICS.SENSOR_SHT31, function(data) {
+                if (data.temperature !== undefined) state.temp = data.temperature;
+                if (data.humidity !== undefined) state.hum = data.humidity;
+                updateSensorDisplay();
+                updateGauges();
+                updateChartData();
+            });
+
+            mqttManager.on(MQTT_CONFIG.TOPICS.SENSOR_MQ135, function(data) {
+                if (data.nh3 !== undefined) state.nh3 = data.nh3;
+                updateSensorDisplay();
+                updateGauges();
+                updateChartData();
+            });
+
+            mqttManager.on(MQTT_CONFIG.TOPICS.ACTUATOR_STATUS, function(data) {
+                if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
+                if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
+                if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
+                if (data.peltierOn !== undefined) state.peltierOn = data.peltierOn;
+                if (data.fanOn !== undefined) state.fanOn = data.fanOn;
+                if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
+                if (data.mode !== undefined) state.mode = data.mode;
+                updateActuatorDisplay();
+            });
+
+            mqttManager.on(MQTT_CONFIG.TOPICS.SYSTEM_ALARM, function(data) {
+                if (data.alarm) {
+                    addAlarm(data.alarm, data.active !== false);
+                }
+            });
+
+            mqttManager.on(MQTT_CONFIG.TOPICS.SELF_MONITOR, function(data) {
+                if (data.health !== undefined) state.health = data.health;
+                updateHealthDisplay();
+            });
+
+            mqttManager.on(MQTT_CONFIG.TOPICS.SENSOR_STATUS, function(data) {
+                // update status koneksi
+                if (data.esp32 !== undefined) state.wifiConnected = data.esp32 === 'online';
+                updateStatusIndicators();
+            });
+
+            // Status koneksi MQTT
+            mqttManager.onStatusChange(function(connected) {
+                state.mqttConnected = connected;
+                updateStatusIndicators();
+                if (connected) {
+                    showToast('MQTT Terhubung', 'success');
+                } else {
+                    showToast('MQTT Terputus', 'error');
+                }
+            });
+
+            // Koneksi
+            mqttManager.connect();
+        }
+
+        // Panggil di init()
+        function init() {
+            // ... kode init yang sudah ada
+            initMQTT(); // tambahkan ini
+            // ...
+        }
+
+        // =============================================================
+        // 5. NOTIFICATIONS & LOGS
+        // =============================================================
+        function addNotification(message, type = 'info') {
+            const time = formatTime();
+            state.notifications.unshift({ message, type, time });
+            if (state.notifications.length > 50) state.notifications.pop();
+            renderNotifications();
+        }
+
+        function addLog(message) {
+            const time = formatTime();
+            state.logs.unshift({ message, time });
+            if (state.logs.length > 50) state.logs.pop();
+            renderLogs();
+        }
+
+        function addAlarm(message, active = true) {
+            const existing = state.alarms.find(a => a.message === message);
+            if (existing) { existing.active = active; } else { state.alarms.push({ message, active }); }
+            renderAlarms();
+        }
+
+        function renderNotifications() {
+            const container = document.getElementById('notifList');
+            const count = document.getElementById('notifCount');
+            if (!state.notifications.length) {
+                container.innerHTML =
+                    `<div class="notif-item"><i class="fas fa-check-circle text-green-400"></i><span>Sistem siap</span><span class="time">${formatTime()}</span></div>`;
+                count.textContent = '0';
+                return;
+            }
+            container.innerHTML = state.notifications.slice(0, 10).map(n => `
+            <div class="notif-item">
+              <i class="fas ${n.type === 'success' ? 'fa-check-circle text-green-400' : n.type === 'error' ? 'fa-exclamation-circle text-red-400' : n.type === 'warning' ? 'fa-triangle-exclamation text-yellow-400' : 'fa-circle-info text-blue-400'}"></i>
+              <span>${n.message}</span>
+              <span class="time">${n.time}</span>
+            </div>
+          `).join('');
+            count.textContent = state.notifications.length;
+        }
+
+        function renderLogs() {
+            const container = document.getElementById('logList');
+            if (!state.logs.length) {
+                container.innerHTML = `<div class="text-gray-400 text-center py-4">Belum ada aktivitas</div>`;
+                return;
+            }
+            container.innerHTML = state.logs.slice(0, 10).map(l => `
+            <div class="flex justify-between items-center py-1 border-b border-white/5 text-sm">
+              <span>${l.message}</span>
+              <span class="text-gray-500 text-xs">${l.time}</span>
+            </div>
+          `).join('');
+        }
+
+        function renderAlarms() {
+            const container = document.getElementById('alarmList');
+            const count = document.getElementById('alarmCount');
+            const active = state.alarms.filter(a => a.active);
+            count.textContent = `${active.length} aktif`;
+            if (!active.length) {
+                container.innerHTML = `<div class="alarm-item"><span class="icon">✅</span> Semua normal</div>`;
+                return;
+            }
+            container.innerHTML = active.map(a => `
+            <div class="alarm-item active">
+              <span class="icon danger"><i class="fas fa-exclamation-triangle"></i></span>
+              <span>${a.message}</span>
+            </div>
+          `).join('');
+        }
+
+        // =============================================================
+        // 6. CLOCK
+        // =============================================================
+        function updateClock() {
+            document.getElementById('clock').textContent = formatTime();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // =============================================================
+        // 7. SIDEBAR TOGGLE (Mobile)
+        // =============================================================
+        document.getElementById('menuToggle').addEventListener('click', () => {
+            document.getElementById('sidebar').classList.toggle('open');
+        });
+        // Close sidebar on outside click (mobile)
+        document.addEventListener('click', (e) => {
+            const sidebar = document.getElementById('sidebar');
+            const toggle = document.getElementById('menuToggle');
+            if (window.innerWidth <= 1024 && !sidebar.contains(e.target) && !toggle.contains(e.target)) {
+                sidebar.classList.remove('open');
+            }
+        });
+
+        // =============================================================
+        // 8. MQTT CLIENT
+        // =============================================================
+        let mqttClient = null;
+
+        function connectMQTT() {
+            try {
+                mqttClient = mqtt.connect(CONFIG.MQTT_BROKER, {
+                    clientId: 'dashboard_' + uid(),
+                    clean: true,
+                    reconnectPeriod: 3000,
+                });
+
+                mqttClient.on('connect', () => {
+                    state.mqttConnected = true;
+                    updateStatusIndicators();
+                    showToast('MQTT Terhubung', 'success');
+                    addLog('MQTT Connected');
+                    // Subscribe
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
+                    // Publish ready
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
+                        command: 'dashboard_online',
+                        timestamp: new Date().toISOString()
+                    }));
+                });
+
+                mqttClient.on('message', (topic, payload) => {
+                    try {
+                        const data = JSON.parse(payload.toString());
+                        handleMqttMessage(topic, data);
+                    } catch (e) {
+                        // raw
+                    }
+                });
+
+                mqttClient.on('close', () => {
+                    state.mqttConnected = false;
+                    updateStatusIndicators();
+                    showToast('MQTT Terputus', 'error');
+                    addLog('MQTT Disconnected');
+                });
+
+                mqttClient.on('error', (err) => {
+                    console.error('MQTT Error:', err);
+                    state.mqttConnected = false;
+                    updateStatusIndicators();
+                });
+
+            } catch (e) {
+                console.error('MQTT init error:', e);
+                state.mqttConnected = false;
+                updateStatusIndicators();
+            }
+        }
+
+        function handleMqttMessage(topic, data) {
+            switch (topic) {
+                case CONFIG.MQTT_TOPICS.SENSOR_SHT31:
+                    if (data.temperature !== undefined) state.temp = data.temperature;
+                    if (data.humidity !== undefined) state.hum = data.humidity;
+                    updateSensorDisplay();
+                    updateGauges();
+                    break;
+                case CONFIG.MQTT_TOPICS.SENSOR_MQ135:
+                    if (data.nh3 !== undefined) state.nh3 = data.nh3;
+                    updateSensorDisplay();
+                    updateGauges();
+                    break;
+                case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
+                    if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
+                    if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
+                    if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
+                    if (data.peltierOn !== undefined) state.peltierOn = data.peltierOn;
+                    if (data.fanOn !== undefined) state.fanOn = data.fanOn;
+                    if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
+                    if (data.mode !== undefined) state.mode = data.mode;
+                    updateActuatorDisplay();
+                    break;
+                case CONFIG.MQTT_TOPICS.SYSTEM_ALARM:
+                    if (data.alarm) addAlarm(data.alarm, data.active !== false);
+                    break;
+                case CONFIG.MQTT_TOPICS.SELF_MONITOR:
+                    if (data.health !== undefined) state.health = data.health;
+                    updateHealthDisplay();
+                    break;
+                default:
+                    break;
+            }
+            // update chart with every data
+            updateChartData();
+        }
+
+        // =============================================================
+        // 9. SIMULASI DATA (jika MQTT tidak tersedia)
+        // =============================================================
+        let simulationInterval = null;
+
+        function startSimulation() {
+            if (simulationInterval) return;
+            simulationInterval = setInterval(() => {
+                // Simulasi perubahan natural
+                state.temp += randomBetween(-0.15, 0.15);
+                state.temp = clamp(state.temp, 24, 32);
+                state.hum += randomBetween(-0.3, 0.3);
+                state.hum = clamp(state.hum, 55, 92);
+                state.nh3 += randomBetween(-0.2, 0.2);
+                state.nh3 = clamp(state.nh3, 0, 30);
+
+                // Simulasi kontrol Peltier (jika AUTO)
+                if (state.mode === 'AUTO') {
+                    const err = state.setpointTemp - state.temp;
+                    state.error = err;
+                    state.deltaError = (err - (state._lastError || 0)) / 2;
+                    state._lastError = err;
+                    // Sederhana: P-only + I kecil
+                    const p = state.kp * err;
+                    const i = state.ki * (state._integral || 0) + 0.01 * err;
+                    state._integral = (state._integral || 0) + err * 2 / 1000;
+                    state._integral = clamp(state._integral, -10, 10);
+                    const d = state.kd * state.deltaError;
+                    state.outputPid = clamp(p + i + d, -100, 100);
+                    if (state.outputPid > 5) {
+                        state.peltierPwm = clamp(state.outputPid, 10, 100);
+                        state.peltierOn = true;
+                        state.fanPwm = clamp(state.outputPid * 0.6, 10, 100);
+                        state.fanOn = true;
+                        state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.5, 10, 100) : 0;
+                        state.coolFanOn = state.coolFanPwm > 5;
+                    } else if (state.outputPid < -5) {
+                        state.peltierPwm = clamp(Math.abs(state.outputPid), 10, 100);
+                        state.peltierOn = true;
+                        state.fanPwm = clamp(Math.abs(state.outputPid) * 0.4, 10, 100);
+                        state.fanOn = true;
+                        state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.4, 10, 100) : 0;
+                        state.coolFanOn = state.coolFanPwm > 5;
+                    } else {
+                        state.peltierPwm = 0;
+                        state.peltierOn = false;
+                        state.fanPwm = 0;
+                        state.fanOn = false;
+                        state.coolFanPwm = 0;
+                        state.coolFanOn = false;
+                    }
+                }
+
+                // Health
+                state.health = clamp(state.health + randomBetween(-0.3, 0.3), 85, 100);
+
+                // Update UI
+                updateSensorDisplay();
+                updateActuatorDisplay();
+                updateGauges();
+                updateHealthDisplay();
+                updateChartData();
+                updateStatusIndicators();
+
+                // Log periodically
+                if (Math.random() < 0.02) {
+                    addLog(`Suhu: ${state.temp.toFixed(1)}°C · Kelembaban: ${state.hum.toFixed(1)}%`);
+                }
+                if (Math.random() < 0.01) {
+                    addNotification(`Sistem berjalan normal`, 'success');
+                }
+
+                // Simulasi alarm
+                if (state.temp > 31) addAlarm('Suhu Tinggi (>31°C)', true);
+                else addAlarm('Suhu Tinggi (>31°C)', false);
+                if (state.temp < 25) addAlarm('Suhu Rendah (<25°C)', true);
+                else addAlarm('Suhu Rendah (<25°C)', false);
+                if (state.hum > 90) addAlarm('Kelembaban Tinggi (>90%)', true);
+                else addAlarm('Kelembaban Tinggi (>90%)', false);
+                if (state.hum < 60) addAlarm('Kelembaban Rendah (<60%)', true);
+                else addAlarm('Kelembaban Rendah (<60%)', false);
+                if (state.nh3 > 25) addAlarm('NH₃ Tinggi (>25 ppm)', true);
+                else addAlarm('NH₃ Tinggi (>25 ppm)', false);
+
+            }, CONFIG.INTERVAL_SAMPLE);
+        }
+
+        // =============================================================
+        // 10. UI UPDATE FUNCTIONS
+        // =============================================================
+
+        function updateSensorDisplay() {
+            const t = state.temp,
+                h = state.hum,
+                n = state.nh3;
+            document.getElementById('tempValue').innerHTML = `${t.toFixed(1)} <span class="unit">°C</span>`;
+            document.getElementById('humValue').innerHTML = `${h.toFixed(1)} <span class="unit">%RH</span>`;
+            document.getElementById('nh3Value').innerHTML = `${n.toFixed(1)} <span class="unit">ppm</span>`;
+
+            // Progress
+            const tempPct = ((t - 24) / (29 - 24)) * 100;
+            document.getElementById('tempProgress').style.width = clamp(tempPct, 0, 100) + '%';
+            document.getElementById('tempProgress').style.background = t > 29 ? '#e74c3c' : t < 26 ? '#f1c40f' : '#2a9d8f';
+
+            const humPct = ((h - 60) / (90 - 60)) * 100;
+            document.getElementById('humProgress').style.width = clamp(humPct, 0, 100) + '%';
+            document.getElementById('humProgress').style.background = h > 90 ? '#e74c3c' : h < 60 ? '#f1c40f' : '#3498db';
+
+            const nh3Pct = (n / 25) * 100;
+            document.getElementById('nh3Progress').style.width = clamp(nh3Pct, 0, 100) + '%';
+            document.getElementById('nh3Progress').style.background = n > 25 ? '#e74c3c' : n > 15 ? '#f1c40f' : '#2a9d8f';
+
+            // Status badges
+            const tempBadge = document.getElementById('tempStatusBadge');
+            tempBadge.textContent = t > 29 ? 'Panas' : t < 26 ? 'Dingin' : 'Normal';
+            tempBadge.className = `status-badge ${t > 29 ? 'danger' : t < 26 ? 'warning' : 'normal'}`;
+
+            const humBadge = document.getElementById('humStatusBadge');
+            humBadge.textContent = h > 90 ? 'Basah' : h < 60 ? 'Kering' : 'Normal';
+            humBadge.className = `status-badge ${h > 90 ? 'danger' : h < 60 ? 'warning' : 'normal'}`;
+
+            const nh3Badge = document.getElementById('nh3StatusBadge');
+            nh3Badge.textContent = n > 25 ? 'Berbahaya' : n > 15 ? 'Waspada' : 'Normal';
+            nh3Badge.className = `status-badge ${n > 25 ? 'danger' : n > 15 ? 'warning' : 'normal'}`;
+
+            // Gauge values
+            document.getElementById('gaugeTempVal').textContent = t.toFixed(1);
+            document.getElementById('gaugeHumVal').textContent = h.toFixed(1);
+            document.getElementById('gaugeNh3Val').textContent = n.toFixed(1);
+        }
+
+        function updateActuatorDisplay() {
+            document.getElementById('actuatorMode').innerHTML = `Mode: <strong>${state.mode}</strong>`;
+
+            const peltier = document.getElementById('peltierDetail');
+            peltier.textContent = `${state.peltierOn ? 'ON' : 'OFF'} · ${state.peltierPwm.toFixed(0)}%`;
+            const pLed = document.getElementById('peltierLed');
+            pLed.className = `status-led ${state.peltierOn ? 'on' : 'off'}`;
+
+            const fan = document.getElementById('fanDetail');
+            fan.textContent = `${state.fanOn ? 'ON' : 'OFF'} · ${state.fanPwm.toFixed(0)}%`;
+            const fLed = document.getElementById('fanLed');
+            fLed.className = `status-led ${state.fanOn ? 'on' : 'off'}`;
+
+            const cool = document.getElementById('coolFanDetail');
+            cool.textContent = `${state.coolFanOn ? 'ON' : 'OFF'} · ${state.coolFanPwm.toFixed(0)}%`;
+            const cLed = document.getElementById('coolFanLed');
+            cLed.className = `status-led ${state.coolFanOn ? 'on' : 'off'}`;
+        }
+
+        function updateHealthDisplay() {
+            const val = Math.round(state.health);
+            document.getElementById('healthValue').textContent = val + '%';
+            const ring = document.getElementById('healthRing');
+            const label = document.getElementById('healthLabel');
+            if (val >= 80) {
+                ring.style.border = '4px solid #2a9d8f';
+                ring.style.boxShadow = '0 0 30px rgba(42,157,143,0.2)';
+                label.textContent = 'Baik';
+                label.className = 'text-xs text-green-400';
+            } else if (val >= 60) {
+                ring.style.border = '4px solid #f1c40f';
+                ring.style.boxShadow = '0 0 30px rgba(241,196,15,0.2)';
+                label.textContent = 'Waspada';
+                label.className = 'text-xs text-yellow-400';
+            } else {
+                ring.style.border = '4px solid #e74c3c';
+                ring.style.boxShadow = '0 0 30px rgba(231,76,60,0.2)';
+                label.textContent = 'Kritis';
+                label.className = 'text-xs text-red-400';
+            }
+            // Uptime
+            state.uptime += CONFIG.INTERVAL_SAMPLE / 1000;
+            const hrs = Math.floor(state.uptime / 3600);
+            const mins = Math.floor((state.uptime % 3600) / 60);
+            document.getElementById('uptime').textContent = `${hrs}h ${mins}m`;
+        }
+
+        function updateStatusIndicators() {
+            const setDot = (id, online) => {
+                const el = document.getElementById(id);
+                if (el) { el.className = `dot ${online ? 'online' : 'offline'}`; }
+            };
+            setDot('wifiDot', state.wifiConnected);
+            setDot('mqttDot', state.mqttConnected);
+            setDot('sheetDot', state.sheetConnected);
+
+            // Status items
+            document.getElementById('statusEsp').className = `dot ${state.wifiConnected ? 'green' : 'red'}`;
+            document.getElementById('statusWifi').className = `dot ${state.wifiConnected ? 'green' : 'red'}`;
+            document.getElementById('statusMqtt').className = `dot ${state.mqttConnected ? 'green' : 'red'}`;
+            document.getElementById('statusSheet').className = `dot ${state.sheetConnected ? 'green' : 'red'}`;
+            document.getElementById('statusFuzzy').className = `dot ${state.mode === 'AUTO' ? 'green' : 'yellow'}`;
+            document.getElementById('statusSelf').className = `dot ${state.health > 60 ? 'green' : 'yellow'}`;
+        }
+
+        // =============================================================
+        // 11. GAUGES (Canvas)
+        // =============================================================
+        function drawGauge(canvasId, value, min, max, unit, color) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.parentElement.getBoundingClientRect();
+            const size = Math.min(rect.width || 140, rect.height || 140);
+            canvas.width = size * 2;
+            canvas.height = size * 2;
+            const cx = canvas.width / 2,
+                cy = canvas.height / 2,
+                r = canvas.width / 2 - 20;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const v = clamp(value, min, max);
+            const pct = (v - min) / (max - min);
+            const startAngle = -Math.PI * 0.75;
+            const endAngle = Math.PI * 0.75;
+            const angle = startAngle + pct * (endAngle - startAngle);
+
+            // Background arc
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, startAngle, endAngle);
+            ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+            ctx.lineWidth = 14;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            // Value arc
+            const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            const c = color || '#2a9d8f';
+            grad.addColorStop(0, '#2a9d8f');
+            grad.addColorStop(0.5, '#2a9d8f');
+            grad.addColorStop(1, '#2a9d8f');
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, startAngle, angle);
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = 14;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            // Center dot
+            ctx.beginPath();
+            ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.08)';
+            ctx.fill();
+        }
+
+        function updateGauges() {
+            drawGauge('gaugeTemp', state.temp, 20, 35, '°C', '#2a9d8f');
+            drawGauge('gaugeHum', state.hum, 40, 100, '%RH', '#3498db');
+            drawGauge('gaugeNh3', state.nh3, 0, 40, 'ppm', '#f1c40f');
+        }
+
+        // =============================================================
+        // 12. CHART (Chart.js)
+        // =============================================================
+        let chart = null;
+
+        function initChart() {
+            const ctx = document.getElementById('realtimeChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: state.chartData.labels,
+                    datasets: [{
+                        label: 'Suhu (°C)',
+                        data: state.chartData.temp,
+                        borderColor: '#2a9d8f',
+                        backgroundColor: 'rgba(42,157,143,0.05)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true,
+                    }, {
+                        label: 'Kelembaban (%)',
+                        data: state.chartData.hum,
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52,152,219,0.05)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true,
+                    }, {
+                        label: 'NH₃ (ppm)',
+                        data: state.chartData.nh3,
+                        borderColor: '#f1c40f',
+                        backgroundColor: 'rgba(241,196,15,0.05)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        fill: true,
+                    }, {
+                        label: 'PWM Peltier (%)',
+                        data: state.chartData.pwmPeltier,
+                        borderColor: '#e74c3c',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        borderDash: [4, 4],
+                    }, {
+                        label: 'PWM Fan (%)',
+                        data: state.chartData.pwmFan,
+                        borderColor: '#e67e22',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        borderDash: [4, 4],
+                    }, {
+                        label: 'PWM Cool Fan (%)',
+                        data: state.chartData.pwmCool,
+                        borderColor: '#9b59b6',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.4,
+                        borderDash: [4, 4],
+                    }, ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#8892a8', font: { size: 10, family: 'Poppins' }, boxWidth: 12,
+                                padding: 8 }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: 'rgba(11,14,20,0.9)',
+                            borderColor: 'rgba(255,255,255,0.06)',
+                            borderWidth: 1,
+                            titleColor: '#e8edf5',
+                            bodyColor: '#8892a8',
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255,255,255,0.03)' },
+                            ticks: { color: '#4a5268', maxTicksLimit: 10, font: { size: 9 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255,255,255,0.03)' },
+                            ticks: { color: '#4a5268', font: { size: 9 } }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index',
+                    }
+                }
+            });
+        }
+
+        function updateChartData() {
+            if (!chart) return;
+            const now = formatTime();
+            // Limit to 200 points
+            const maxPoints = 200;
+            state.chartData.labels.push(now);
+            state.chartData.temp.push(state.temp);
+            state.chartData.hum.push(state.hum);
+            state.chartData.nh3.push(state.nh3);
+            state.chartData.pwmPeltier.push(state.peltierPwm);
+            state.chartData.pwmFan.push(state.fanPwm);
+            state.chartData.pwmCool.push(state.coolFanPwm);
+
+            if (state.chartData.labels.length > maxPoints) {
+                state.chartData.labels.shift();
+                state.chartData.temp.shift();
+                state.chartData.hum.shift();
+                state.chartData.nh3.shift();
+                state.chartData.pwmPeltier.shift();
+                state.chartData.pwmFan.shift();
+                state.chartData.pwmCool.shift();
+            }
+
+            chart.data.labels = state.chartData.labels;
+            chart.data.datasets[0].data = state.chartData.temp;
+            chart.data.datasets[1].data = state.chartData.hum;
+            chart.data.datasets[2].data = state.chartData.nh3;
+            chart.data.datasets[3].data = state.chartData.pwmPeltier;
+            chart.data.datasets[4].data = state.chartData.pwmFan;
+            chart.data.datasets[5].data = state.chartData.pwmCool;
+            chart.update('none');
+        }
+
+        // =============================================================
+        // 13. SPREADSHEET (Google Apps Script)
+        // =============================================================
+        function logToSpreadsheet(data) {
+            // Jika URL masih placeholder, skip
+            if (!CONFIG.SPREADSHEET_API || CONFIG.SPREADSHEET_API.includes('YOUR_DEPLOYMENT_ID')) {
+                console.log('Spreadsheet API not configured');
+                return;
+            }
+            
+            fetch(CONFIG.SPREADSHEET_API, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    temperature: data.temp || state.temp,
+                    humidity: data.hum || state.hum,
+                    nh3: data.nh3 || state.nh3,
+                    peltierPwm: data.peltierPwm || state.peltierPwm,
+                    fanPwm: data.fanPwm || state.fanPwm,
+                    coolFanPwm: data.coolFanPwm || state.coolFanPwm,
+                    kp: data.kp || state.kp,
+                    ki: data.ki || state.ki,
+                    kd: data.kd || state.kd,
+                    mode: data.mode || state.mode,
+                    alarm: state.alarms.filter(a => a.active).map(a => a.message).join(',') || 'Normal',
+                    status: state.health > 80 ? 'Normal' : state.health > 60 ? 'Warning' : 'Danger',
+                })
+            }).catch(e => console.error('Spreadsheet error:', e));
+        }
+
+        // Auto log setiap interval
+        setInterval(() => {
+            logToSpreadsheet({});
+        }, CONFIG.INTERVAL_LOG);
+
+        // Kirim pertama kali setelah 5 detik
+        setTimeout(() => {
+            logToSpreadsheet({});
+        }, 5000);
+
+        // =============================================================
+        // 14. TELEGRAM NOTIFICATION
+        // =============================================================
+        function sendTelegram(message) {
+            if (!CONFIG.TELEGRAM_BOT_TOKEN || CONFIG.TELEGRAM_BOT_TOKEN.includes('YOUR_BOT_TOKEN')) return;
+            const url =
+                `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`;
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    chat_id: CONFIG.TELEGRAM_CHAT_ID,
+                    text: `🔔 *IoT Kandang Ulat*\n${message}\n${formatTime()}`,
+                    parse_mode: 'Markdown',
+                })
+            }).catch(e => console.error('Telegram error:', e));
+        }
+
+        // Monitor alarm untuk kirim Telegram
+        let lastAlarmSent = {};
+        setInterval(() => {
+            const activeAlarms = state.alarms.filter(a => a.active);
+            activeAlarms.forEach(a => {
+                const key = a.message;
+                if (!lastAlarmSent[key] || Date.now() - lastAlarmSent[key] > 60000) {
+                    sendTelegram(`⚠️ ALARM: ${a.message}`);
+                    lastAlarmSent[key] = Date.now();
+                    addNotification(`Telegram: ${a.message}`, 'warning');
+                }
+            });
+        }, 30000);
+
+        // =============================================================
+        // 15. CHART RANGE BUTTONS
+        // =============================================================
+        document.querySelectorAll('[data-range]').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                const range = this.dataset.range;
+                // Simulasi: kita hanya reset chart dengan data yang ada
+                showToast(`Menampilkan ${range}`, 'info');
+                // Dalam produksi, kita fetch data historis dari spreadsheet
+            });
+        });
+
+        // =============================================================
+        // 16. MODAL
+        // =============================================================
+        let modalCallback = null;
+
+        function showModal(title, message, confirmText = 'Ya', cancelText = 'Batal', cb) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalMessage').textContent = message;
+            document.getElementById('modalConfirm').textContent = confirmText;
+            document.getElementById('modalCancel').textContent = cancelText;
+            document.getElementById('modalOverlay').classList.add('show');
+            modalCallback = cb;
+        }
+
+        document.getElementById('modalCancel').addEventListener('click', () => {
+            document.getElementById('modalOverlay').classList.remove('show');
+            if (modalCallback) modalCallback(false);
+        });
+        document.getElementById('modalConfirm').addEventListener('click', () => {
+            document.getElementById('modalOverlay').classList.remove('show');
+            if (modalCallback) modalCallback(true);
+        });
+        document.getElementById('modalOverlay').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) {
+                document.getElementById('modalOverlay').classList.remove('show');
+                if (modalCallback) modalCallback(false);
+            }
+        });
+
+        // =============================================================
+        // 17. KEYBOARD SHORTCUTS
+        // =============================================================
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                document.getElementById('modalOverlay').classList.remove('show');
+                if (modalCallback) modalCallback(false);
+            }
+        });
+
+        // =============================================================
+        // 18. FULLSCREEN
+        // =============================================================
+        document.addEventListener('dblclick', (e) => {
+            if (e.target.closest('.card')) {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen().catch(() => {});
+                } else {
+                    document.exitFullscreen().catch(() => {});
+                }
+            }
+        });
+
+        // =============================================================
+        // 19. INIT
+        // =============================================================
+        function init() {
+            // Set initial state
+            state.temp = 27.3;
+            state.hum = 74.8;
+            state.nh3 = 4.2;
+            state.peltierPwm = 0;
+            state.fanPwm = 0;
+            state.coolFanPwm = 0;
+            state.health = 97;
+
+            // Update UI
+            updateSensorDisplay();
+            updateActuatorDisplay();
+            updateHealthDisplay();
+            updateStatusIndicators();
+
+            // Init chart
+            initChart();
+
+            // Init gauges
+            setTimeout(updateGauges, 100);
+
+            // Connect MQTT
+            connectMQTT();
+
+            // Start simulation (will run alongside MQTT)
+            startSimulation();
+
+            // Add startup messages
+            addNotification('Dashboard siap', 'success');
+            addLog('Sistem dimulai');
+
+            // Hide loading screen
+            setTimeout(() => {
+                document.getElementById('loading-screen').classList.add('hide');
+            }, 800);
+
+            // Show initial toast
+            setTimeout(() => {
+                showToast('Selamat datang di IoT Kandang Ulat Hongkong', 'success');
+            }, 1200);
+
+            // Auto refresh status
+            setInterval(() => {
+                // Reconnect MQTT if needed
+                if (!state.mqttConnected && mqttClient) {
+                    try { mqttClient.reconnect(); } catch (e) {}
+                }
+                // Update status indicators
+                updateStatusIndicators();
+            }, 10000);
+
+            // Publish status periodically
+            setInterval(() => {
+                if (state.mqttConnected && mqttClient) {
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
+                        dashboard: 'online',
+                        timestamp: new Date().toISOString(),
+                        health: state.health,
+                    }));
+                }
+            }, 15000);
+        }
+
+        // Run when DOM ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        // =============================================================
+        // 20. EXPOSE TO GLOBAL (untuk debugging)
+        // =============================================================
+        window.__state = state;
+        window.__config = CONFIG;
+        window.__showToast = showToast;
+        window.__sendTelegram = sendTelegram;
+        window.__logToSheet = logToSpreadsheet;
+        window.__showModal = showModal;
+
+        console.log('🐛 IoT Kandang Ulat Dashboard v2.0.0');
+        console.log('📡 MQTT Broker:', CONFIG.MQTT_BROKER);
+        console.log('📊 State:', state);
+        console.log('💡 Gunakan window.__state untuk debugging');
+        console.log('💬 showToast(), sendTelegram(), logToSheet(), showModal()');
+    </script>
+
+</body>
+</html>

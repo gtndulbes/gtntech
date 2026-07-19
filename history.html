@@ -1,0 +1,1460 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Data Logger - IoT Kandang Ulat Hongkong</title>
+    <script src="https://cdn.tailwindcss.com">
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
+    </script>
+    <script src="assets/js/mqtt-config.js">
+    </script>
+    <style>
+        /* ===== RESET & BASE ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #0b0e14;
+            color: #e8edf5;
+            overflow-x: hidden;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1a1f2b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2a9d8f;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #21867a;
+        }
+
+        /* ===== GLASSMORPHISM ===== */
+        .glass {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+        }
+
+        /* ===== SIDEBAR ===== */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 76px;
+            height: 100vh;
+            background: rgba(11, 14, 20, 0.92);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            z-index: 1000;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: 16px 0;
+        }
+        .sidebar:hover {
+            width: 240px;
+        }
+        .sidebar .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0 18px 24px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 16px;
+            white-space: nowrap;
+        }
+        .sidebar .logo i {
+            font-size: 28px;
+            color: #2a9d8f;
+            min-width: 40px;
+            text-align: center;
+        }
+        .sidebar .logo span {
+            font-size: 18px;
+            font-weight: 700;
+            color: #e8edf5;
+            opacity: 0;
+            transition: opacity 0.25s;
+        }
+        .sidebar:hover .logo span {
+            opacity: 1;
+        }
+        .sidebar .nav {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 8px;
+        }
+        .sidebar .nav a {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 14px;
+            margin-bottom: 4px;
+            border-radius: 12px;
+            color: #8892a8;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            white-space: nowrap;
+            position: relative;
+        }
+        .sidebar .nav a i {
+            font-size: 20px;
+            min-width: 36px;
+            text-align: center;
+        }
+        .sidebar .nav a span {
+            opacity: 0;
+            transition: opacity 0.25s;
+        }
+        .sidebar:hover .nav a span {
+            opacity: 1;
+        }
+        .sidebar .nav a:hover {
+            background: rgba(42, 157, 143, 0.15);
+            color: #e8edf5;
+        }
+        .sidebar .nav a.active {
+            background: rgba(42, 157, 143, 0.20);
+            color: #2a9d8f;
+            box-shadow: inset 3px 0 0 #2a9d8f;
+        }
+
+        /* ===== MAIN CONTENT ===== */
+        .main-content {
+            margin-left: 76px;
+            min-height: 100vh;
+            padding: 20px 24px 40px;
+            transition: margin-left 0.3s;
+        }
+
+        /* ===== TOP NAVBAR ===== */
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding: 12px 20px;
+            background: rgba(11, 14, 20, 0.7);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            margin-bottom: 24px;
+        }
+        .topbar .left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .topbar .left .menu-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: #e8edf5;
+            font-size: 22px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+        .topbar .left .menu-toggle:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .topbar .left h1 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .topbar .left h1 small {
+            font-weight: 400;
+            font-size: 13px;
+            color: #8892a8;
+        }
+        .topbar .right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .topbar .right .status-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #8892a8;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 4px 12px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .topbar .right .status-item .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .topbar .right .status-item .dot.online {
+            background: #2a9d8f;
+            box-shadow: 0 0 8px rgba(42, 157, 143, 0.5);
+        }
+        .topbar .right .status-item .dot.offline {
+            background: #e74c3c;
+            box-shadow: 0 0 8px rgba(231, 76, 60, 0.4);
+        }
+        .topbar .right .clock {
+            font-size: 15px;
+            font-weight: 500;
+            color: #e8edf5;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 4px 14px;
+            border-radius: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            font-variant-numeric: tabular-nums;
+        }
+        .topbar .right .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2a9d8f, #1a6b62);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            color: #fff;
+            cursor: pointer;
+            border: 2px solid rgba(42, 157, 143, 0.3);
+        }
+
+        /* ===== CARDS ===== */
+        .card {
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 16px;
+            padding: 20px;
+            transition: all 0.25s;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+        }
+        .card:hover {
+            border-color: rgba(42, 157, 143, 0.2);
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.35);
+            transform: translateY(-2px);
+        }
+        .card .card-title {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #8892a8;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .card .card-title i {
+            font-size: 16px;
+            color: #2a9d8f;
+        }
+
+        /* ===== TOAST ===== */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9998;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 380px;
+            width: 100%;
+        }
+        .toast {
+            padding: 14px 18px;
+            border-radius: 12px;
+            background: rgba(20, 25, 35, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideInRight 0.4s ease;
+            font-size: 13px;
+        }
+        .toast .icon {
+            font-size: 18px;
+        }
+        .toast .icon.success {
+            color: #2a9d8f;
+        }
+        .toast .icon.error {
+            color: #e74c3c;
+        }
+        .toast .icon.warning {
+            color: #f1c40f;
+        }
+        .toast .icon.info {
+            color: #3498db;
+        }
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(60px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        .toast.hide {
+            opacity: 0;
+            transform: translateX(60px);
+            transition: 0.3s;
+        }
+
+        /* ===== BREADCRUMB ===== */
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #8892a8;
+            flex-wrap: wrap;
+        }
+        .breadcrumb a {
+            color: #8892a8;
+            text-decoration: none;
+            transition: 0.2s;
+        }
+        .breadcrumb a:hover {
+            color: #2a9d8f;
+        }
+        .breadcrumb .sep {
+            color: #3a4050;
+        }
+        .breadcrumb .current {
+            color: #e8edf5;
+        }
+
+        /* ===== LOADING ===== */
+        #loading-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: #0b0e14;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.4s, visibility 0.4s;
+        }
+        #loading-screen.hide {
+            opacity: 0;
+            visibility: hidden;
+        }
+        #loading-screen .spinner {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: 4px solid rgba(42, 157, 143, 0.15);
+            border-top-color: #2a9d8f;
+            animation: spin-slow 1s linear infinite;
+        }
+        #loading-screen p {
+            margin-top: 20px;
+            color: #8892a8;
+            font-weight: 500;
+            letter-spacing: 1px;
+        }
+        @keyframes spin-slow {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ===== BUTTON ===== */
+        .btn {
+            padding: 8px 16px;
+            border-radius: 10px;
+            border: none;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.25s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-primary {
+            background: #2a9d8f;
+            color: #fff;
+        }
+        .btn-primary:hover {
+            background: #21867a;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(42, 157, 143, 0.3);
+        }
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.06);
+            color: #e8edf5;
+        }
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        .btn-success {
+            background: #27ae60;
+            color: #fff;
+        }
+        .btn-success:hover {
+            background: #1e8449;
+        }
+        .btn-danger {
+            background: #e74c3c;
+            color: #fff;
+        }
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        /* ===== TABLE ===== */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .data-table th {
+            text-align: left;
+            padding: 10px 12px;
+            color: #8892a8;
+            font-weight: 600;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.06);
+            position: sticky;
+            top: 0;
+            background: #0b0e14;
+            z-index: 10;
+            white-space: nowrap;
+        }
+        .data-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            vertical-align: middle;
+            font-size: 12px;
+        }
+        .data-table tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* ===== PAGINATION ===== */
+        .pagination {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .pagination button {
+            padding: 6px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.03);
+            color: #8892a8;
+            cursor: pointer;
+            font-size: 13px;
+            transition: 0.2s;
+        }
+        .pagination button:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #e8edf5;
+        }
+        .pagination button.active {
+            background: #2a9d8f;
+            color: #fff;
+            border-color: #2a9d8f;
+        }
+        .pagination button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 0;
+                padding: 0;
+                overflow: hidden;
+                border-right: none;
+            }
+            .sidebar.open {
+                width: 240px;
+                padding: 16px 0;
+                overflow-y: auto;
+            }
+            .main-content {
+                margin-left: 0;
+            }
+            .topbar .left .menu-toggle {
+                display: block;
+            }
+            .topbar .left h1 small {
+                display: none;
+            }
+        }
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 12px 12px 32px;
+            }
+            .topbar {
+                padding: 10px 14px;
+            }
+            .topbar .right .status-item span {
+                display: none;
+            }
+            .topbar .right .clock {
+                font-size: 13px;
+                padding: 2px 10px;
+            }
+            .card {
+                padding: 14px;
+            }
+            .data-table {
+                font-size: 11px;
+            }
+            .data-table th,
+            .data-table td {
+                padding: 6px 8px;
+            }
+            .btn {
+                padding: 6px 12px;
+                font-size: 11px;
+            }
+            .pagination button {
+                padding: 4px 10px;
+                font-size: 11px;
+            }
+        }
+        @media (max-width: 480px) {
+            .topbar .left h1 {
+                font-size: 15px;
+            }
+            .topbar .right .status-item {
+                padding: 2px 8px;
+                font-size: 10px;
+            }
+            .card {
+                padding: 12px;
+            }
+            .data-table {
+                font-size: 10px;
+            }
+            .data-table th,
+            .data-table td {
+                padding: 4px 6px;
+            }
+        }
+
+        /* Utility */
+        .flex-wrap {
+            flex-wrap: wrap;
+        }
+        .items-center {
+            align-items: center;
+        }
+        .justify-between {
+            justify-content: space-between;
+        }
+        .text-center {
+            text-align: center;
+        }
+        .w-full {
+            width: 100%;
+        }
+        .gap-2 {
+            gap: 8px;
+        }
+        .gap-3 {
+            gap: 12px;
+        }
+        .gap-4 {
+            gap: 16px;
+        }
+        .gap-6 {
+            gap: 24px;
+        }
+        .mt-2 {
+            margin-top: 8px;
+        }
+        .mt-3 {
+            margin-top: 12px;
+        }
+        .mt-4 {
+            margin-top: 16px;
+        }
+        .mt-6 {
+            margin-top: 24px;
+        }
+        .mb-2 {
+            margin-bottom: 8px;
+        }
+        .mb-3 {
+            margin-bottom: 12px;
+        }
+        .mb-4 {
+            margin-bottom: 16px;
+        }
+        .mb-6 {
+            margin-bottom: 24px;
+        }
+        .text-xs {
+            font-size: 11px;
+        }
+        .text-sm {
+            font-size: 13px;
+        }
+        .text-base {
+            font-size: 15px;
+        }
+        .text-lg {
+            font-size: 17px;
+        }
+        .text-xl {
+            font-size: 20px;
+        }
+        .font-medium {
+            font-weight: 500;
+        }
+        .font-semibold {
+            font-weight: 600;
+        }
+        .font-bold {
+            font-weight: 700;
+        }
+        .flex {
+            display: flex;
+        }
+        .grid {
+            display: grid;
+        }
+        @media (min-width: 640px) {
+            .sm\:flex-row {
+                flex-direction: row;
+            }
+        }
+        @media (min-width: 768px) {
+            .md\:flex-row {
+                flex-direction: row;
+            }
+            .md\:grid-cols-2 {
+                grid-template-columns: 1fr 1fr;
+            }
+            .md\:grid-cols-4 {
+                grid-template-columns: 1fr 1fr 1fr 1fr;
+            }
+        }
+
+        .transition-all {
+            transition: all 0.25s ease;
+        }
+        .cursor-pointer {
+            cursor: pointer;
+        }
+        .rounded-full {
+            border-radius: 9999px;
+        }
+        .border {
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .bg-white\/5 {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .bg-white\/10 {
+            background: rgba(255, 255, 255, 0.10);
+        }
+        .text-gray-400 {
+            color: #8892a8;
+        }
+        .text-gray-500 {
+            color: #6a7288;
+        }
+        .text-white {
+            color: #e8edf5;
+        }
+        .text-green-400 {
+            color: #2a9d8f;
+        }
+        .text-yellow-400 {
+            color: #f1c40f;
+        }
+        .text-red-400 {
+            color: #e74c3c;
+        }
+        .text-blue-400 {
+            color: #3498db;
+        }
+        .bg-green-500\/20 {
+            background: rgba(42, 157, 143, 0.2);
+        }
+        .bg-red-500\/20 {
+            background: rgba(231, 76, 60, 0.2);
+        }
+        .hover\:bg-white\/10:hover {
+            background: rgba(255, 255, 255, 0.10);
+        }
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .fade-in-up {
+            animation: fadeInUp 0.5s ease forwards;
+        }
+        .hidden {
+            display: none !important;
+        }
+
+        /* Search input */
+        .search-input {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 8px 14px 8px 36px;
+            color: #e8edf5;
+            font-size: 13px;
+            width: 200px;
+            transition: 0.2s;
+            outline: none;
+            font-family: 'Poppins', sans-serif;
+        }
+        .search-input:focus {
+            border-color: #2a9d8f;
+            box-shadow: 0 0 20px rgba(42, 157, 143, 0.1);
+        }
+        .search-input::placeholder {
+            color: #4a5268;
+        }
+        .search-wrap {
+            position: relative;
+        }
+        .search-wrap i {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #4a5268;
+            font-size: 14px;
+        }
+
+        /* Status badge in table */
+        .status-badge-sm {
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .status-badge-sm.normal {
+            background: rgba(42, 157, 143, 0.2);
+            color: #2a9d8f;
+        }
+        .status-badge-sm.warning {
+            background: rgba(241, 196, 15, 0.2);
+            color: #f1c40f;
+        }
+        .status-badge-sm.danger {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+        }
+        .status-badge-sm.auto {
+            background: rgba(42, 157, 143, 0.15);
+            color: #2a9d8f;
+        }
+        .status-badge-sm.manual {
+            background: rgba(241, 196, 15, 0.15);
+            color: #f1c40f;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .table-container thead {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== LOADING SCREEN ===== -->
+    <div id="loading-screen">
+        <div class="spinner"></div>
+        <p>⏳ Memuat Data Logger ...</p>
+    </div>
+
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="sidebar" id="sidebar">
+        <div class="logo">
+            <i class="fas fa-bug"></i>
+            <span>IoT Ulat</span>
+        </div>
+        <nav class="nav">
+            <a href="index.html"><i class="fas fa-home"></i><span>Dashboard</span></a>
+            <a href="monitoring.html"><i class="fas fa-chart-line"></i><span>Monitoring</span></a>
+            <a href="control.html"><i class="fas fa-sliders-h"></i><span>Kontrol</span></a>
+            <a href="fuzzy.html"><i class="fas fa-brain"></i><span>Fuzzy PID</span></a>
+            <a href="self-monitoring.html"><i class="fas fa-heartbeat"></i><span>Self Monitoring</span></a>
+            <a href="history.html" class="active"><i class="fas fa-database"></i><span>Data Logger</span></a>
+            <a href="settings.html"><i class="fas fa-cog"></i><span>Settings</span></a>
+            <a href="about.html"><i class="fas fa-user"></i><span>About</span></a>
+        </nav>
+        <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:#4a5268;text-align:center;">
+            v2.0.0
+        </div>
+    </aside>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <div class="main-content" id="mainContent">
+
+        <!-- ===== TOPBAR ===== -->
+        <header class="topbar">
+            <div class="left">
+                <button class="menu-toggle" id="menuToggle" aria-label="Toggle Sidebar">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <h1>
+                    📈 Data Logger
+                    <small>— Riwayat &amp; Ekspor Data</small>
+                </h1>
+            </div>
+            <div class="right">
+                <div class="status-item">
+                    <span class="dot online" id="wifiDot"></span>
+                    <span>WiFi</span>
+                </div>
+                <div class="status-item">
+                    <span class="dot online" id="mqttDot"></span>
+                    <span>MQTT</span>
+                </div>
+                <div class="status-item">
+                    <span class="dot online" id="sheetDot"></span>
+                    <span>Spreadsheet</span>
+                </div>
+                <div class="clock" id="clock">--:--:--</div>
+                <div class="avatar">MR</div>
+            </div>
+        </header>
+
+        <!-- ===== BREADCRUMB ===== -->
+        <div class="breadcrumb mb-4">
+            <a href="index.html">🏠</a>
+            <span class="sep">/</span>
+            <span class="current">Data Logger</span>
+        </div>
+
+        <!-- ===== STATISTIK ===== -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="card fade-in-up" style="animation-delay:0.05s; border-left: 4px solid #2a9d8f;">
+                <div class="text-xs text-gray-400">Total Records</div>
+                <div class="text-2xl font-bold text-white" id="totalRecords">--</div>
+            </div>
+            <div class="card fade-in-up" style="animation-delay:0.10s; border-left: 4px solid #3498db;">
+                <div class="text-xs text-gray-400">Rata-rata Suhu</div>
+                <div class="text-2xl font-bold text-blue-400" id="avgTemp">-- °C</div>
+            </div>
+            <div class="card fade-in-up" style="animation-delay:0.15s; border-left: 4px solid #f1c40f;">
+                <div class="text-xs text-gray-400">Rata-rata Kelembaban</div>
+                <div class="text-2xl font-bold text-yellow-400" id="avgHum">-- %</div>
+            </div>
+            <div class="card fade-in-up" style="animation-delay:0.20s; border-left: 4px solid #e74c3c;">
+                <div class="text-xs text-gray-400">Rata-rata NH₃</div>
+                <div class="text-2xl font-bold text-red-400" id="avgNh3">-- ppm</div>
+            </div>
+        </div>
+
+        <!-- ===== FILTER & EXPORT ===== -->
+        <div class="card mb-6 fade-in-up" style="animation-delay:0.25s;">
+            <div class="card-title">
+                <span><i class="fas fa-filter mr-2"></i>Filter &amp; Ekspor</span>
+                <div class="flex gap-2">
+                    <button class="btn btn-secondary text-xs" id="refreshDataBtn"><i class="fas fa-sync"></i> Refresh</button>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-4">
+                <!-- Filter Range -->
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-gray-400">Range:</span>
+                    <button class="btn btn-secondary text-xs filter-range active" data-range="hari">Hari</button>
+                    <button class="btn btn-secondary text-xs filter-range" data-range="minggu">Minggu</button>
+                    <button class="btn btn-secondary text-xs filter-range" data-range="bulan">Bulan</button>
+                    <button class="btn btn-secondary text-xs filter-range" data-range="semua">Semua</button>
+                </div>
+                <!-- Search -->
+                <div class="search-wrap">
+                    <i class="fas fa-search"></i>
+                    <input type="text" class="search-input" id="searchInput" placeholder="Cari data..." />
+                </div>
+                <!-- Export -->
+                <div class="flex items-center gap-2 ml-auto">
+                    <button class="btn btn-success text-xs" id="exportCsvBtn"><i class="fas fa-file-csv"></i> CSV</button>
+                    <button class="btn btn-success text-xs" id="exportExcelBtn"><i class="fas fa-file-excel"></i> Excel</button>
+                    <button class="btn btn-danger text-xs" id="exportPdfBtn"><i class="fas fa-file-pdf"></i> PDF</button>
+                </div>
+            </div>
+            <div class="flex justify-between items-center mt-3 text-xs text-gray-400">
+                <span id="recordInfo">Menampilkan 0 dari 0 data</span>
+                <span id="lastSync">Terakhir sync: --</span>
+            </div>
+        </div>
+
+        <!-- ===== TABLE ===== -->
+        <div class="card fade-in-up" style="animation-delay:0.30s;">
+            <div class="card-title">
+                <span><i class="fas fa-table mr-2"></i>Riwayat Data</span>
+                <span class="text-xs text-gray-400" id="tableCount">0 records</span>
+            </div>
+            <div class="table-container" id="tableContainer">
+                <table class="data-table" id="dataTable">
+                    <thead>
+                        <tr>
+                            <th>Waktu</th>
+                            <th>Suhu (°C)</th>
+                            <th>Kelembaban (%)</th>
+                            <th>NH₃ (ppm)</th>
+                            <th>Peltier PWM (%)</th>
+                            <th>Fan PWM (%)</th>
+                            <th>Cool Fan PWM (%)</th>
+                            <th>Kp</th>
+                            <th>Ki</th>
+                            <th>Kd</th>
+                            <th>Mode</th>
+                            <th>Alarm</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        <!-- akan diisi JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="flex justify-between items-center mt-4 flex-wrap gap-2">
+                <div class="text-xs text-gray-400" id="pageInfo">Halaman 1 dari 1</div>
+                <div class="pagination" id="paginationControls">
+                    <button id="prevPageBtn" disabled><i class="fas fa-chevron-left"></i></button>
+                    <button class="active" data-page="1">1</button>
+                    <button id="nextPageBtn" disabled><i class="fas fa-chevron-right"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== FOOTER ===== -->
+        <div class="text-center text-xs text-gray-500 mt-8 border-t border-white/5 pt-4">
+            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v2.0.0
+        </div>
+    </div>
+
+    <!-- ===== TOAST CONTAINER ===== -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- ============================================================ -->
+    <!-- ===== JAVASCRIPT ===== -->
+    <script>
+        // =============================================================
+        // 1. CONFIGURATION
+        // =============================================================
+        var CONFIG = {
+            PAGE_SIZE: 15
+        };
+
+        // =============================================================
+        // 2. STATE
+        // =============================================================
+        var state = {
+            allData: [],
+            filteredData: [],
+            currentPage: 1,
+            pageSize: CONFIG.PAGE_SIZE,
+            filterRange: 'hari',
+            searchQuery: '',
+            lastSync: null
+        };
+
+        mqttManager.on(MQTT_CONFIG.TOPICS.SENSOR_SHT31, function(data) {
+        // Tambahkan data baru ke tabel (dengan timestamp sekarang)
+        var newRow = {
+            timestamp: new Date().toISOString(),
+            temperature: data.temperature || 0,
+            humidity: data.humidity || 0,
+            nh3: state.nh3 || 0, // ambil dari state jika ada
+            peltierPwm: state.peltierPwm || 0,
+            fanPwm: state.fanPwm || 0,
+            coolFanPwm: state.coolFanPwm || 0,
+            mode: state.mode || 'AUTO',
+            alarm: 'Normal',
+            status: 'Normal'
+        };
+        // Tambahkan ke data
+        state.allData.push(newRow);
+        if (state.allData.length > 500) state.allData.shift();
+        // Re-filter & render
+        filterData();
+        });
+
+        // =============================================================
+        // 3. UTILITY
+        // =============================================================
+        function formatTime(d) {
+            d = d || new Date();
+            return d.toLocaleTimeString('id-ID', { hour12: false });
+        }
+
+        function formatDateTime(d) {
+            if (!d) return '--';
+            if (typeof d === 'string') d = new Date(d);
+            return d.toLocaleString('id-ID', { hour12: false, day: '2-digit', month: 'short', year: 'numeric' });
+        }
+
+        function formatDateShort(d) {
+            if (!d) return '--';
+            if (typeof d === 'string') d = new Date(d);
+            return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+        }
+
+        function randomBetween(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function clamp(v, min, max) {
+            return Math.min(Math.max(v, min), max);
+        }
+
+        // =============================================================
+        // 4. TOAST
+        // =============================================================
+        function showToast(message, type, duration) {
+            type = type || 'info';
+            duration = duration || 4000;
+            var container = document.getElementById('toastContainer');
+            var icons = {
+                success: 'fa-check-circle',
+                error: 'fa-exclamation-circle',
+                warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info'
+            };
+            var colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
+            var el = document.createElement('div');
+            el.className = 'toast';
+            el.innerHTML =
+                '<span class="icon ' + colors[type] + '"><i class="fas ' + (icons[type] || icons.info) + '"></i></span><span>' +
+                message + '</span>';
+            container.appendChild(el);
+            setTimeout(function() {
+                el.classList.add('hide');
+                setTimeout(function() { el.remove(); }, 400);
+            }, duration);
+        }
+
+        // =============================================================
+        // 5. CLOCK & SIDEBAR
+        // =============================================================
+        function updateClock() {
+            document.getElementById('clock').textContent = formatTime();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        var menuToggle = document.getElementById('menuToggle');
+        var sidebar = document.getElementById('sidebar');
+        menuToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            sidebar.classList.toggle('open');
+        });
+        document.addEventListener('click', function(e) {
+            if (window.innerWidth <= 1024) {
+                if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+                    sidebar.classList.remove('open');
+                }
+            }
+        });
+        window.addEventListener('resize', function() {
+            if (window.innerWidth > 1024) sidebar.classList.remove('open');
+        });
+
+        // =============================================================
+        // 6. DATA GENERATOR (Mock)
+        // =============================================================
+        function generateMockData(count) {
+            count = count || 120;
+            var data = [];
+            var now = new Date();
+            for (var i = 0; i < count; i++) {
+                var t = now.getTime() - i * 60000 * (1 + Math.random() * 2);
+                var date = new Date(t);
+                var temp = 26 + Math.sin(i / 18) * 2.5 + randomBetween(-0.5, 0.5);
+                var hum = 70 + Math.sin(i / 13 + 1) * 12 + randomBetween(-1, 1);
+                var nh3 = 3 + Math.sin(i / 22 + 2) * 2.5 + randomBetween(-0.3, 0.3);
+                var modes = ['AUTO', 'AUTO', 'AUTO', 'MANUAL'];
+                var alarms = ['Normal', 'Normal', 'Normal', 'Normal', 'Suhu Tinggi', 'Normal', 'NH3 Tinggi'];
+                var statuses = ['Normal', 'Normal', 'Warning', 'Normal', 'Danger', 'Normal'];
+                data.push({
+                    timestamp: date.toISOString(),
+                    temperature: clamp(temp, 24, 32),
+                    humidity: clamp(hum, 55, 92),
+                    nh3: clamp(nh3, 0, 30),
+                    peltierPwm: Math.round(randomBetween(0, 100)),
+                    fanPwm: Math.round(randomBetween(0, 100)),
+                    coolFanPwm: Math.round(randomBetween(0, 100)),
+                    kp: (2 + Math.random() * 1).toFixed(2),
+                    ki: (0.3 + Math.random() * 0.6).toFixed(2),
+                    kd: (0.05 + Math.random() * 0.15).toFixed(2),
+                    mode: modes[Math.floor(Math.random() * modes.length)],
+                    alarm: alarms[Math.floor(Math.random() * alarms.length)],
+                    status: statuses[Math.floor(Math.random() * statuses.length)]
+                });
+            }
+            data.sort(function(a, b) {
+                return new Date(a.timestamp) - new Date(b.timestamp);
+            });
+            return data;
+        }
+
+        // =============================================================
+        // 7. LOAD DATA (LANGSUNG MOCK)
+        // =============================================================
+        function loadData() {
+            var mock = generateMockData(120);
+            state.allData = mock;
+            state.lastSync = new Date();
+            filterData();
+            document.getElementById('loading-screen').classList.add('hide');
+            showToast('Data dimuat: ' + mock.length + ' records', 'success');
+        }
+
+        // =============================================================
+        // 8. FILTER & SEARCH
+        // =============================================================
+        function filterData() {
+            var data = state.allData.slice();
+
+            var now = new Date();
+            var cutoff = new Date();
+            switch (state.filterRange) {
+                case 'hari':
+                    cutoff.setDate(now.getDate() - 1);
+                    break;
+                case 'minggu':
+                    cutoff.setDate(now.getDate() - 7);
+                    break;
+                case 'bulan':
+                    cutoff.setMonth(now.getMonth() - 1);
+                    break;
+                case 'semua':
+                default:
+                    cutoff = new Date(0);
+                    break;
+            }
+            data = data.filter(function(d) {
+                return new Date(d.timestamp) >= cutoff;
+            });
+
+            if (state.searchQuery.trim()) {
+                var q = state.searchQuery.toLowerCase().trim();
+                data = data.filter(function(d) {
+                    return d.timestamp.toLowerCase().includes(q) ||
+                        d.temperature.toString().includes(q) ||
+                        d.humidity.toString().includes(q) ||
+                        d.nh3.toString().includes(q) ||
+                        d.mode.toLowerCase().includes(q) ||
+                        d.status.toLowerCase().includes(q) ||
+                        d.alarm.toLowerCase().includes(q);
+                });
+            }
+
+            state.filteredData = data;
+            state.currentPage = 1;
+            updateStats();
+            renderTable();
+            renderPagination();
+        }
+
+        // =============================================================
+        // 9. STATISTICS
+        // =============================================================
+        function updateStats() {
+            var data = state.filteredData;
+            var total = data.length;
+            document.getElementById('totalRecords').textContent = total;
+
+            if (total === 0) {
+                document.getElementById('avgTemp').textContent = '-- °C';
+                document.getElementById('avgHum').textContent = '-- %';
+                document.getElementById('avgNh3').textContent = '-- ppm';
+                return;
+            }
+
+            var sumTemp = 0,
+                sumHum = 0,
+                sumNh3 = 0;
+            for (var i = 0; i < total; i++) {
+                sumTemp += data[i].temperature;
+                sumHum += data[i].humidity;
+                sumNh3 += data[i].nh3;
+            }
+
+            document.getElementById('avgTemp').textContent = (sumTemp / total).toFixed(1) + ' °C';
+            document.getElementById('avgHum').textContent = (sumHum / total).toFixed(1) + ' %';
+            document.getElementById('avgNh3').textContent = (sumNh3 / total).toFixed(1) + ' ppm';
+
+            document.getElementById('recordInfo').textContent = 'Menampilkan ' + total + ' data';
+            document.getElementById('tableCount').textContent = total + ' records';
+            document.getElementById('lastSync').textContent = 'Terakhir sync: ' + (state.lastSync ? formatTime(state
+                .lastSync) : '--');
+        }
+
+        // =============================================================
+        // 10. RENDER TABLE
+        // =============================================================
+        function renderTable() {
+            var tbody = document.getElementById('tableBody');
+            var data = state.filteredData;
+            var start = (state.currentPage - 1) * state.pageSize;
+            var end = Math.min(start + state.pageSize, data.length);
+            var pageData = data.slice(start, end);
+
+            if (pageData.length === 0) {
+                tbody.innerHTML =
+                    '<tr><td colspan="13" class="text-center text-gray-400 py-6">Tidak ada data</td></tr>';
+                document.getElementById('pageInfo').textContent = 'Halaman 0 dari 0';
+                return;
+            }
+
+            var html = '';
+            for (var i = 0; i < pageData.length; i++) {
+                var d = pageData[i];
+                var modeClass = d.mode === 'AUTO' ? 'auto' : 'manual';
+                var statusClass = d.status === 'Normal' ? 'normal' : d.status === 'Warning' ? 'warning' : 'danger';
+                var alarmDisplay = d.alarm === 'Normal' ? '✅' : '⚠️ ' + d.alarm;
+                html += '<tr>' +
+                    '<td style="white-space:nowrap;">' + formatDateTime(d.timestamp) + '</td>' +
+                    '<td>' + d.temperature.toFixed(1) + '</td>' +
+                    '<td>' + d.humidity.toFixed(1) + '</td>' +
+                    '<td>' + d.nh3.toFixed(1) + '</td>' +
+                    '<td>' + d.peltierPwm + '</td>' +
+                    '<td>' + d.fanPwm + '</td>' +
+                    '<td>' + d.coolFanPwm + '</td>' +
+                    '<td>' + d.kp + '</td>' +
+                    '<td>' + d.ki + '</td>' +
+                    '<td>' + d.kd + '</td>' +
+                    '<td><span class="status-badge-sm ' + modeClass + '">' + d.mode + '</span></td>' +
+                    '<td class="text-sm">' + alarmDisplay + '</td>' +
+                    '<td><span class="status-badge-sm ' + statusClass + '">' + d.status + '</span></td>' +
+                    '</tr>';
+            }
+            tbody.innerHTML = html;
+
+            var totalPages = Math.ceil(data.length / state.pageSize) || 1;
+            document.getElementById('pageInfo').textContent = 'Halaman ' + state.currentPage + ' dari ' + totalPages;
+        }
+
+        // =============================================================
+        // 11. PAGINATION
+        // =============================================================
+        function renderPagination() {
+            var container = document.getElementById('paginationControls');
+            var totalPages = Math.ceil(state.filteredData.length / state.pageSize) || 1;
+            var current = state.currentPage;
+
+            container.innerHTML = '';
+
+            var prevBtn = document.createElement('button');
+            prevBtn.id = 'prevPageBtn';
+            prevBtn.innerHTML = '<i class="fas fa-chevron-left"></i>';
+            prevBtn.disabled = current <= 1;
+            prevBtn.addEventListener('click', function() {
+                if (current > 1) {
+                    state.currentPage--;
+                    renderTable();
+                    renderPagination();
+                }
+            });
+            container.appendChild(prevBtn);
+
+            var startPage = Math.max(1, current - 2);
+            var endPage = Math.min(totalPages, current + 2);
+            if (endPage - startPage < 4) {
+                if (startPage === 1) endPage = Math.min(totalPages, 5);
+                else startPage = Math.max(1, endPage - 4);
+            }
+            for (var i = startPage; i <= endPage; i++) {
+                var btn = document.createElement('button');
+                btn.textContent = i;
+                btn.className = i === current ? 'active' : '';
+                btn.dataset.page = i;
+                btn.addEventListener('click', function() {
+                    state.currentPage = parseInt(this.textContent);
+                    renderTable();
+                    renderPagination();
+                });
+                container.appendChild(btn);
+            }
+
+            var nextBtn = document.createElement('button');
+            nextBtn.id = 'nextPageBtn';
+            nextBtn.innerHTML = '<i class="fas fa-chevron-right"></i>';
+            nextBtn.disabled = current >= totalPages;
+            nextBtn.addEventListener('click', function() {
+                if (current < totalPages) {
+                    state.currentPage++;
+                    renderTable();
+                    renderPagination();
+                }
+            });
+            container.appendChild(nextBtn);
+        }
+
+        // =============================================================
+        // 12. EXPORT FUNCTIONS
+        // =============================================================
+        function exportCSV() {
+            var data = state.filteredData;
+            if (data.length === 0) { showToast('Tidak ada data untuk diekspor', 'warning'); return; }
+            var headers = ['Timestamp', 'Temperature', 'Humidity', 'NH3', 'PeltierPWM', 'FanPWM', 'CoolFanPWM', 'Kp', 'Ki',
+                'Kd', 'Mode', 'Alarm', 'Status'
+            ];
+            var rows = data.map(function(d) {
+                return [
+                    d.timestamp, d.temperature.toFixed(2), d.humidity.toFixed(2), d.nh3.toFixed(2),
+                    d.peltierPwm, d.fanPwm, d.coolFanPwm, d.kp, d.ki, d.kd, d.mode, d.alarm, d.status
+                ];
+            });
+            var csv = headers.join(',') + '\n' + rows.map(function(r) { return r.join(','); }).join('\n');
+            var blob = new Blob([csv], { type: 'text/csv' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'data_logger_' + formatDateShort(new Date()) + '.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('CSV berhasil diekspor', 'success');
+        }
+
+        function exportExcel() {
+            var data = state.filteredData;
+            if (data.length === 0) { showToast('Tidak ada data untuk diekspor', 'warning'); return; }
+            var headers = ['Timestamp', 'Temperature', 'Humidity', 'NH3', 'PeltierPWM', 'FanPWM', 'CoolFanPWM', 'Kp', 'Ki',
+                'Kd', 'Mode', 'Alarm', 'Status'
+            ];
+            var rows = data.map(function(d) {
+                return [
+                    d.timestamp, d.temperature.toFixed(2), d.humidity.toFixed(2), d.nh3.toFixed(2),
+                    d.peltierPwm, d.fanPwm, d.coolFanPwm, d.kp, d.ki, d.kd, d.mode, d.alarm, d.status
+                ];
+            });
+            var tsv = headers.join('\t') + '\n' + rows.map(function(r) { return r.join('\t'); }).join('\n');
+            var blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'data_logger_' + formatDateShort(new Date()) + '.xls';
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('Excel berhasil diekspor', 'success');
+        }
+
+        function exportPDF() {
+            var data = state.filteredData;
+            if (data.length === 0) { showToast('Tidak ada data untuk diekspor', 'warning'); return; }
+            var tableHtml = document.getElementById('dataTable').outerHTML;
+            var win = window.open('', '_blank');
+            win.document.write(
+                '<html><head><title>Data Logger Export</title><style>' +
+                'body { font-family: "Poppins", sans-serif; padding: 20px; background: #fff; color: #222; }' +
+                'h2 { margin-bottom: 10px; }' +
+                'table { border-collapse: collapse; width: 100%; font-size: 11px; }' +
+                'th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }' +
+                'th { background: #f5f5f5; font-weight: 600; }' +
+                '.footer { margin-top: 20px; font-size: 12px; color: #888; }' +
+                '</style></head><body>' +
+                '<h2>📊 Data Logger - IoT Kandang Ulat Hongkong</h2>' +
+                '<p>Total: ' + data.length + ' records | Generated: ' + new Date().toLocaleString() + '</p>' +
+                tableHtml +
+                '<div class="footer">© 2026 IoT Kandang Ulat Hongkong</div>' +
+                '</body></html>'
+            );
+            win.document.close();
+            setTimeout(function() { win.print(); }, 500);
+            showToast('PDF siap dicetak', 'success');
+        }
+
+        // =============================================================
+        // 13. EVENT LISTENERS
+        // =============================================================
+        document.querySelectorAll('.filter-range').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.filter-range').forEach(function(b) { b.classList.remove('active'); });
+                this.classList.add('active');
+                state.filterRange = this.dataset.range;
+                filterData();
+            });
+        });
+
+        document.getElementById('searchInput').addEventListener('input', function() {
+            state.searchQuery = this.value;
+            filterData();
+        });
+
+        document.getElementById('refreshDataBtn').addEventListener('click', function() {
+            loadData();
+        });
+
+        document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
+        document.getElementById('exportExcelBtn').addEventListener('click', exportExcel);
+        document.getElementById('exportPdfBtn').addEventListener('click', exportPDF);
+
+        // =============================================================
+        // 14. INIT
+        // =============================================================
+        function init() {
+            loadData();
+            setInterval(function() {
+                loadData();
+            }, 30000);
+            setTimeout(function() {
+                document.getElementById('loading-screen').classList.add('hide');
+            }, 800);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        console.log('📈 Data Logger Page Loaded');
+    </script>
+
+</body>
+</html>

@@ -11,8 +11,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
     </script>
-    <script src="assets/js/mqtt-config.js"></script>
-    <script src="assets/js/sync.js"></script>
+    <script src="assets/js/sync.js">
+    </script>
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -1112,24 +1112,40 @@
         // =============================================================
         // 1. CONFIGURATION
         // =============================================================
-        const CONFIG = {
+        var CONFIG = {
             MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
             MQTT_TOPICS: {
-                SYSTEM_STATE: 'system/state'   // Untuk sinkronisasi state antar dashboard
+                SYSTEM_STATE: 'system/state',
+                SYSTEM_CONTROL: 'system/control',
+                SENSOR_STATUS: 'sensor/status',
+                FUZZY_STATUS: 'fuzzy/status',
+                SETTING_UPDATE: 'setting/update',
             },
         };
 
         // =============================================================
-        // 2. STATE
+        // 2. STATE (dengan SyncModule integration)
         // =============================================================
-        const state = {
+        var state = {
             mqttConnected: false,
             wifiConnected: true,
             sheetConnected: false,
-            dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
-        };
+            dataReceived: false,
+            initialized: false,
 
-        let initialized = false;
+            // Konfigurasi yang disimpan di SyncModule
+            systemName: 'IoT Kandang Ulat Hongkong',
+            samplingInterval: 2,
+            defaultMode: 'AUTO',
+            mqttBroker: 'wss://broker.emqx.io:8084/mqtt',
+            wifiSsid: 'Wifi_UMKM_01',
+            sheetApiUrl: 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec',
+            tempOffset: 0,
+            humOffset: 0,
+            alarmTempMax: 32,
+            alarmTempMin: 24,
+            userUsername: 'admin',
+        };
 
         // =============================================================
         // 3. UTILITY
@@ -1138,28 +1154,36 @@
 
         function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
-        function safeNumber(value, fallback = 0) {
-            const num = Number(value);
+        function safeNumber(value, fallback) {
+            fallback = fallback || 0;
+            var num = Number(value);
             return Number.isFinite(num) ? num : fallback;
         }
 
         // =============================================================
         // 4. TOAST
         // =============================================================
-        function showToast(message, type = 'info', duration = 4000) {
-            const container = document.getElementById('toastContainer');
-            const icons = { success: 'fa-check-circle', error: 'fa-exclamation-circle', warning: 'fa-triangle-exclamation',
-                info: 'fa-circle-info' };
-            const colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
-            const el = document.createElement('div');
+        function showToast(message, type, duration) {
+            type = type || 'info';
+            duration = duration || 4000;
+            var container = document.getElementById('toastContainer');
+            var icons = {
+                success: 'fa-check-circle',
+                error: 'fa-exclamation-circle',
+                warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info'
+            };
+            var colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
+            var el = document.createElement('div');
             el.className = 'toast';
-            el.innerHTML = `
-            <span class="icon ${colors[type]}"><i class="fas ${icons[type] || icons.info}"></i></span>
-            <span>${message}</span>
-          `;
+            el.innerHTML =
+                '<span class="icon ' + colors[type] + '"><i class="fas ' + (icons[type] || icons.info) + '"></i></span><span>' +
+                message + '</span>';
             container.appendChild(el);
-            setTimeout(() => { el.classList.add('hide');
-                setTimeout(() => el.remove(), 400); }, duration);
+            setTimeout(function() {
+                el.classList.add('hide');
+                setTimeout(function() { el.remove(); }, 400);
+            }, duration);
         }
 
         // =============================================================
@@ -1171,8 +1195,9 @@
         setInterval(updateClock, 1000);
         updateClock();
 
-        const menuToggle = document.getElementById('menuToggle');
-        const sidebar = document.getElementById('sidebar');
+        var menuToggle = document.getElementById('menuToggle');
+        var sidebar = document.getElementById('sidebar');
+
         function setSidebarOpen(open) {
             if (window.innerWidth <= 1024) {
                 sidebar.classList.toggle('open', open);
@@ -1199,9 +1224,9 @@
         });
 
         // =============================================================
-        // 6. MQTT (optional, untuk test koneksi)
+        // 6. MQTT
         // =============================================================
-        let mqttClient = null;
+        var mqttClient = null;
 
         function connectMQTT() {
             try {
@@ -1210,29 +1235,33 @@
                     clean: true,
                     reconnectPeriod: 3000,
                 });
-                mqttClient.on('connect', () => {
+                mqttClient.on('connect', function() {
                     state.mqttConnected = true;
                     updateStatusIndicators();
                     showToast('MQTT Terhubung', 'success');
-                    addLog('MQTT Connected - Menunggu data dari ESP32');
-                    // Subscribe ke semua topik yang diperlukan
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
-                    // Kirim status dashboard online
+                    // Subscribe ke system state untuk sync
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_STATE);
+                    // Kirim status online
                     mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
                         command: 'dashboard_online',
                         timestamp: new Date().toISOString()
                     }));
+                    // Minta status setting
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SETTING_UPDATE, JSON.stringify({
+                        request: 'status'
+                    }));
                 });
-                mqttClient.on('close', () => {
+                mqttClient.on('message', function(topic, payload) {
+                    try {
+                        var data = JSON.parse(payload.toString());
+                        handleMqttMessage(topic, data);
+                    } catch (e) { /* ignore */ }
+                });
+                mqttClient.on('close', function() {
                     state.mqttConnected = false;
                     updateStatusIndicators();
                 });
-                mqttClient.on('error', () => {
+                mqttClient.on('error', function() {
                     state.mqttConnected = false;
                     updateStatusIndicators();
                 });
@@ -1242,46 +1271,128 @@
             }
         }
 
-        function testMqttConnection() {
-            return new Promise((resolve) => {
-                if (state.mqttConnected) {
-                    resolve(true);
-                    return;
+        function handleMqttMessage(topic, data) {
+            var updated = false;
+            if (topic === CONFIG.MQTT_TOPICS.SYSTEM_STATE) {
+                if (typeof SyncModule !== 'undefined') {
+                    SyncModule.handleStateMessage(topic, JSON.stringify(data));
                 }
-                const testClient = mqtt.connect(CONFIG.MQTT_BROKER, {
-                    clientId: 'test_' + uid(),
-                    clean: true,
-                    reconnectPeriod: 1000,
-                });
-                let resolved = false;
-                const timeout = setTimeout(() => {
-                    if (!resolved) {
-                        resolved = true;
-                        testClient.end();
-                        resolve(false);
-                    }
-                }, 5000);
-                testClient.on('connect', () => {
-                    if (!resolved) {
-                        resolved = true;
-                        testClient.end();
-                        resolve(true);
-                    }
-                });
-                testClient.on('error', () => {
-                    if (!resolved) {
-                        resolved = true;
-                        testClient.end();
-                        resolve(false);
-                    }
-                });
-            });
+                // Update state dari sync
+                if (data.systemName !== undefined) { state.systemName = data.systemName;
+                    updated = true; }
+                if (data.samplingInterval !== undefined) { state.samplingInterval = data.samplingInterval;
+                    updated = true; }
+                if (data.defaultMode !== undefined) { state.defaultMode = data.defaultMode;
+                    updated = true; }
+                if (data.mqttBroker !== undefined) { state.mqttBroker = data.mqttBroker;
+                    updated = true; }
+                if (data.wifiSsid !== undefined) { state.wifiSsid = data.wifiSsid;
+                    updated = true; }
+                if (data.sheetApiUrl !== undefined) { state.sheetApiUrl = data.sheetApiUrl;
+                    updated = true; }
+                if (data.tempOffset !== undefined) { state.tempOffset = data.tempOffset;
+                    updated = true; }
+                if (data.humOffset !== undefined) { state.humOffset = data.humOffset;
+                    updated = true; }
+                if (data.alarmTempMax !== undefined) { state.alarmTempMax = data.alarmTempMax;
+                    updated = true; }
+                if (data.alarmTempMin !== undefined) { state.alarmTempMin = data.alarmTempMin;
+                    updated = true; }
+                if (data.userUsername !== undefined) { state.userUsername = data.userUsername;
+                    updated = true; }
+                if (updated) {
+                    state.dataReceived = true;
+                    // Update UI dengan nilai dari sync
+                    updateUIFromState();
+                }
+            }
+            // Sembunyikan loading jika sudah dapat data
+            var ls = document.getElementById('loading-screen');
+            if (ls) ls.classList.add('hide');
         }
 
+        // =============================================================
+        // 7. UPDATE UI DARI STATE
+        // =============================================================
+        function updateUIFromState() {
+            // General
+            var sysName = document.getElementById('systemName');
+            if (sysName) sysName.value = state.systemName;
+            var sampInt = document.getElementById('samplingInterval');
+            if (sampInt) sampInt.value = state.samplingInterval;
+            var defMode = document.getElementById('defaultMode');
+            if (defMode) defMode.value = state.defaultMode;
+
+            // WiFi
+            var wifiSsid = document.getElementById('wifiSsid');
+            if (wifiSsid) wifiSsid.value = state.wifiSsid;
+
+            // MQTT
+            var mqttBroker = document.getElementById('mqttBroker');
+            if (mqttBroker) mqttBroker.value = state.mqttBroker;
+
+            // Spreadsheet
+            var sheetApi = document.getElementById('sheetApiUrl');
+            if (sheetApi) sheetApi.value = state.sheetApiUrl;
+
+            // Sensor
+            var tempOff = document.getElementById('tempOffset');
+            if (tempOff) tempOff.value = state.tempOffset;
+            var humOff = document.getElementById('humOffset');
+            if (humOff) humOff.value = state.humOffset;
+
+            // Alarm
+            var almMax = document.getElementById('alarmTempMax');
+            if (almMax) almMax.value = state.alarmTempMax;
+            var almMin = document.getElementById('alarmTempMin');
+            if (almMin) almMin.value = state.alarmTempMin;
+
+            // User
+            var user = document.getElementById('userUsername');
+            if (user) user.value = state.userUsername;
+
+            // Sembunyikan loading
+            var ls = document.getElementById('loading-screen');
+            if (ls) ls.classList.add('hide');
+        }
+
+        // =============================================================
+        // 8. PUBLISH SETTINGS KE MQTT (Sync)
+        // =============================================================
+        function publishSettings() {
+            if (!mqttClient || !mqttClient.connected) return;
+            var data = {
+                systemName: document.getElementById('systemName').value,
+                samplingInterval: parseInt(document.getElementById('samplingInterval').value) || 2,
+                defaultMode: document.getElementById('defaultMode').value,
+                mqttBroker: document.getElementById('mqttBroker').value,
+                wifiSsid: document.getElementById('wifiSsid').value,
+                sheetApiUrl: document.getElementById('sheetApiUrl').value,
+                tempOffset: parseFloat(document.getElementById('tempOffset').value) || 0,
+                humOffset: parseFloat(document.getElementById('humOffset').value) || 0,
+                alarmTempMax: parseFloat(document.getElementById('alarmTempMax').value) || 32,
+                alarmTempMin: parseFloat(document.getElementById('alarmTempMin').value) || 24,
+                userUsername: document.getElementById('userUsername').value,
+            };
+            // Update state
+            for (var key in data) {
+                state[key] = data[key];
+            }
+            // Kirim ke MQTT
+            mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_STATE, JSON.stringify(data));
+            // Sinkronisasi via SyncModule
+            if (typeof SyncModule !== 'undefined') {
+                SyncModule.updateLocalState(data, mqttClient);
+            }
+        }
+
+        // =============================================================
+        // 9. STATUS INDICATORS
+        // =============================================================
         function updateStatusIndicators() {
-            const setDot = (id, online) => {
-                const el = document.getElementById(id);
-                if (el) el.className = `dot ${online ? 'online' : 'offline'}`;
+            var setDot = function(id, online) {
+                var el = document.getElementById(id);
+                if (el) el.className = 'dot ' + (online ? 'online' : 'offline');
             };
             setDot('wifiDot', state.wifiConnected);
             setDot('mqttDot', state.mqttConnected);
@@ -1289,68 +1400,94 @@
         }
 
         // =============================================================
-        // 7. TABS
+        // 10. TABS
         // =============================================================
-        document.querySelectorAll('.tab-btn').forEach(btn => {
+        document.querySelectorAll('.tab-btn').forEach(function(btn) {
             btn.addEventListener('click', function() {
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
                 this.classList.add('active');
-                const target = this.dataset.tab;
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                var target = this.dataset.tab;
+                document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
                 document.getElementById(target).classList.add('active');
             });
         });
 
         // =============================================================
-        // 8. SAVE HANDLERS
+        // 11. SAVE HANDLERS (dengan sync)
         // =============================================================
         document.getElementById('saveGeneralBtn').addEventListener('click', function() {
-            const name = document.getElementById('systemName').value;
-            const interval = document.getElementById('samplingInterval').value;
-            SyncModule.updateLocalState({ systemName: name, samplingInterval: interval }, mqttManager);
-            showToast(`Pengaturan umum disimpan: ${name} (interval ${interval}s)`, 'success');
+            publishSettings();
+            showToast('Pengaturan umum disimpan dan disinkronkan', 'success');
         });
 
         document.getElementById('saveWifiBtn').addEventListener('click', function() {
-            const ssid = document.getElementById('wifiSsid').value;
-            showToast(`Konfigurasi WiFi disimpan untuk SSID: ${ssid}`, 'success');
+            var ssid = document.getElementById('wifiSsid').value;
+            state.wifiSsid = ssid;
+            publishSettings();
+            showToast('Konfigurasi WiFi disimpan untuk SSID: ' + ssid, 'success');
         });
 
         document.getElementById('scanWifiBtn').addEventListener('click', function() {
             showToast('🔍 Scanning jaringan WiFi... (simulasi)', 'info');
-            setTimeout(() => {
+            setTimeout(function() {
                 showToast('Ditemukan 5 jaringan WiFi', 'success');
             }, 1500);
         });
 
         document.getElementById('saveMqttBtn').addEventListener('click', function() {
-            const broker = document.getElementById('mqttBroker').value;
-            SyncModule.updateLocalState({ mqttBroker: broker }, mqttManager);
-            showToast(`Konfigurasi MQTT disimpan: ${broker}`, 'success');
+            var broker = document.getElementById('mqttBroker').value;
+            state.mqttBroker = broker;
+            publishSettings();
+            showToast('Konfigurasi MQTT disimpan: ' + broker, 'success');
         });
 
-        document.getElementById('testMqttBtn').addEventListener('click', async function() {
+        document.getElementById('testMqttBtn').addEventListener('click', function() {
             showToast('🔄 Menguji koneksi MQTT...', 'info');
-            const result = await testMqttConnection();
-            if (result) {
-                state.mqttConnected = true;
-                updateStatusIndicators();
-                showToast('✅ Koneksi MQTT berhasil!', 'success');
-            } else {
-                state.mqttConnected = false;
-                updateStatusIndicators();
-                showToast('❌ Koneksi MQTT gagal!', 'error');
-            }
+            var testClient = mqtt.connect(document.getElementById('mqttBroker').value || CONFIG.MQTT_BROKER, {
+                clientId: 'test_' + uid(),
+                clean: true,
+                reconnectPeriod: 1000,
+            });
+            var resolved = false;
+            var timeout = setTimeout(function() {
+                if (!resolved) {
+                    resolved = true;
+                    testClient.end();
+                    state.mqttConnected = false;
+                    updateStatusIndicators();
+                    showToast('❌ Koneksi MQTT gagal!', 'error');
+                }
+            }, 5000);
+            testClient.on('connect', function() {
+                if (!resolved) {
+                    resolved = true;
+                    testClient.end();
+                    state.mqttConnected = true;
+                    updateStatusIndicators();
+                    showToast('✅ Koneksi MQTT berhasil!', 'success');
+                }
+            });
+            testClient.on('error', function() {
+                if (!resolved) {
+                    resolved = true;
+                    testClient.end();
+                    state.mqttConnected = false;
+                    updateStatusIndicators();
+                    showToast('❌ Koneksi MQTT gagal!', 'error');
+                }
+            });
         });
 
         document.getElementById('saveSheetBtn').addEventListener('click', function() {
-            const apiUrl = document.getElementById('sheetApiUrl').value;
-            showToast(`Konfigurasi Spreadsheet disimpan: ${apiUrl.substring(0, 40)}...`, 'success');
+            var apiUrl = document.getElementById('sheetApiUrl').value;
+            state.sheetApiUrl = apiUrl;
+            publishSettings();
+            showToast('Konfigurasi Spreadsheet disimpan: ' + apiUrl.substring(0, 40) + '...', 'success');
         });
 
         document.getElementById('testSheetBtn').addEventListener('click', function() {
             showToast('🔄 Menguji koneksi Spreadsheet...', 'info');
-            setTimeout(() => {
+            setTimeout(function() {
                 state.sheetConnected = Math.random() > 0.3;
                 updateStatusIndicators();
                 if (state.sheetConnected) {
@@ -1362,27 +1499,35 @@
         });
 
         document.getElementById('saveSensorBtn').addEventListener('click', function() {
-            const tempOff = document.getElementById('tempOffset').value;
-            const humOff = document.getElementById('humOffset').value;
-            showToast(`Kalibrasi sensor disimpan: Suhu ${tempOff}°C, Kelembaban ${humOff}%`, 'success');
+            var tempOff = document.getElementById('tempOffset').value;
+            var humOff = document.getElementById('humOffset').value;
+            state.tempOffset = parseFloat(tempOff) || 0;
+            state.humOffset = parseFloat(humOff) || 0;
+            publishSettings();
+            showToast('Kalibrasi sensor disimpan: Suhu ' + tempOff + '°C, Kelembaban ' + humOff + '%', 'success');
         });
 
         document.getElementById('calibrateSensorBtn').addEventListener('click', function() {
             showToast('🔄 Memulai kalibrasi sensor...', 'info');
-            setTimeout(() => {
+            setTimeout(function() {
                 showToast('✅ Kalibrasi selesai! Sensor dalam kondisi baik.', 'success');
             }, 2000);
         });
 
         document.getElementById('saveAlarmBtn').addEventListener('click', function() {
-            const tempMax = document.getElementById('alarmTempMax').value;
-            const tempMin = document.getElementById('alarmTempMin').value;
-            showToast(`Alarm disimpan: Suhu ${tempMin}°C - ${tempMax}°C`, 'success');
+            var tempMax = document.getElementById('alarmTempMax').value;
+            var tempMin = document.getElementById('alarmTempMin').value;
+            state.alarmTempMax = parseFloat(tempMax) || 32;
+            state.alarmTempMin = parseFloat(tempMin) || 24;
+            publishSettings();
+            showToast('Alarm disimpan: Suhu ' + tempMin + '°C - ' + tempMax + '°C', 'success');
         });
 
         document.getElementById('saveUserBtn').addEventListener('click', function() {
-            const username = document.getElementById('userUsername').value;
-            showToast(`Pengguna ${username} berhasil diperbarui`, 'success');
+            var username = document.getElementById('userUsername').value;
+            state.userUsername = username;
+            publishSettings();
+            showToast('Pengguna ' + username + ' berhasil diperbarui', 'success');
         });
 
         document.getElementById('logoutBtn').addEventListener('click', function() {
@@ -1390,46 +1535,65 @@
         });
 
         // =============================================================
-        // 9. INIT
+        // 12. SINKRONISASI DARI SyncModule
+        // =============================================================
+        if (typeof SyncModule !== 'undefined') {
+            SyncModule.setOnStateChange(function(syncState) {
+                // Update state dari sync
+                if (syncState.systemName !== undefined) state.systemName = syncState.systemName;
+                if (syncState.samplingInterval !== undefined) state.samplingInterval = syncState.samplingInterval;
+                if (syncState.defaultMode !== undefined) state.defaultMode = syncState.defaultMode;
+                if (syncState.mqttBroker !== undefined) state.mqttBroker = syncState.mqttBroker;
+                if (syncState.wifiSsid !== undefined) state.wifiSsid = syncState.wifiSsid;
+                if (syncState.sheetApiUrl !== undefined) state.sheetApiUrl = syncState.sheetApiUrl;
+                if (syncState.tempOffset !== undefined) state.tempOffset = syncState.tempOffset;
+                if (syncState.humOffset !== undefined) state.humOffset = syncState.humOffset;
+                if (syncState.alarmTempMax !== undefined) state.alarmTempMax = syncState.alarmTempMax;
+                if (syncState.alarmTempMin !== undefined) state.alarmTempMin = syncState.alarmTempMin;
+                if (syncState.userUsername !== undefined) state.userUsername = syncState.userUsername;
+                updateUIFromState();
+            });
+        }
+
+        // =============================================================
+        // 13. INIT
         // =============================================================
         function init() {
-            if (initialized) return;
-            initialized = true;
-            state.temp = null;
-            state.hum = null;
-            state.nh3 = null;
-            state.peltierPwm = 0;
-            state.fanPwm = 0;
-            state.coolFanPwm = 0;
-            state.health = 100;
+            if (state.initialized) return;
+            state.initialized = true;
 
             updateStatusIndicators();
             connectMQTT();
 
-            addNotification('Menunggu data dari ESP32...', 'info');
-            addLog('Sistem menunggu koneksi MQTT');
+            // Update UI dengan default state
+            updateUIFromState();
 
-            setTimeout(() => {
-                const loadingScreen = document.getElementById('loading-screen');
-                if (loadingScreen) loadingScreen.classList.add('hide');
-            }, 800);
+            // Loading hilang dalam 1 detik
+            setTimeout(function() {
+                var ls = document.getElementById('loading-screen');
+                if (ls) ls.classList.add('hide');
+            }, 1000);
 
-            setInterval(() => {
+            // Auto refresh status
+            setInterval(function() {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
                 }
                 updateStatusIndicators();
             }, 10000);
 
-            setInterval(() => {
+            // Publish status setiap 15 detik
+            setInterval(function() {
                 if (state.mqttConnected && mqttClient) {
                     mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
                         dashboard: 'online',
                         timestamp: new Date().toISOString(),
-                        health: state.health,
                     }));
                 }
             }, 15000);
+
+            showToast('⚙ Settings siap', 'success');
+            console.log('⚙ Settings Page Loaded');
         }
 
         if (document.readyState === 'loading') {
@@ -1440,7 +1604,7 @@
 
         // Ekspos untuk debug
         window.__state = state;
-        console.log('⚙ Settings Page Loaded');
+        window.__publishSettings = publishSettings;
     </script>
 
 </body>

@@ -94,7 +94,8 @@
             opacity: 0;
             transition: opacity 0.25s;
         }
-        .sidebar:hover .logo span {
+        .sidebar:hover .logo span,
+        .sidebar.open .logo span {
             opacity: 1;
         }
         .sidebar .nav {
@@ -126,7 +127,8 @@
             opacity: 0;
             transition: opacity 0.25s;
         }
-        .sidebar:hover .nav a span {
+        .sidebar:hover .nav a span,
+        .sidebar.open .nav a span {
             opacity: 1;
         }
         .sidebar .nav a:hover {
@@ -507,6 +509,10 @@
                 width: 240px;
                 padding: 16px 0;
                 overflow-y: auto;
+            }
+            .sidebar .logo span,
+            .sidebar .nav a span {
+                opacity: 1;
             }
             .main-content {
                 margin-left: 0;

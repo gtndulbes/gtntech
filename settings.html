@@ -1115,7 +1115,7 @@
         const CONFIG = {
             MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
             MQTT_TOPICS: {
-                SYSTEM_STATE: 'system/state',   // Untuk sinkronisasi state antar dashboard
+                SYSTEM_STATE: 'system/state'   // Untuk sinkronisasi state antar dashboard
             },
         };
 
@@ -1126,6 +1126,7 @@
             mqttConnected: false,
             wifiConnected: true,
             sheetConnected: false,
+            dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
         };
 
         // =============================================================
@@ -1205,6 +1206,20 @@
                 mqttClient.on('connect', () => {
                     state.mqttConnected = true;
                     updateStatusIndicators();
+                    showToast('MQTT Terhubung', 'success');
+                    addLog('MQTT Connected - Menunggu data dari ESP32');
+                    // Subscribe ke semua topik yang diperlukan
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
+                    // Kirim status dashboard online
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
+                        command: 'dashboard_online',
+                        timestamp: new Date().toISOString()
+                    }));
                 });
                 mqttClient.on('close', () => {
                     state.mqttConnected = false;
@@ -1371,21 +1386,59 @@
         // 9. INIT
         // =============================================================
         function init() {
-            connectMQTT();
+            // Set initial state (data kosong, menunggu MQTT)
+            state.temp = null;
+            state.hum = null;
+            state.nh3 = null;
+            state.peltierPwm = 0;
+            state.fanPwm = 0;
+            state.coolFanPwm = 0;
+            state.health = 100;
+
+            // Update UI dengan placeholder "---" atau "Menunggu data..."
+            updateSensorDisplay();   // fungsi ini harus handle null
+            updateActuatorDisplay();
+            updateHealthDisplay();
             updateStatusIndicators();
 
-            // Simulasi koneksi sheet
-            setTimeout(() => {
-                state.sheetConnected = true;
-                updateStatusIndicators();
-            }, 1000);
+            // Init chart (kosong dulu)
+            initChart();
 
+            // Init gauges (tampilkan 0 atau --)
+            updateGauges();
+
+            // Connect MQTT (sumber data utama)
+            connectMQTT();
+
+            // JANGAN panggil startSimulation() !
+
+            // Add startup messages
+            addNotification('Menunggu data dari ESP32...', 'info');
+            addLog('Sistem menunggu koneksi MQTT');
+
+            // Hide loading screen
             setTimeout(() => {
                 document.getElementById('loading-screen').classList.add('hide');
-            }, 600);
-            setTimeout(() => {
-                showToast('Settings siap', 'success');
-            }, 1000);
+            }, 800);
+
+            // Auto refresh status
+            setInterval(() => {
+                if (!state.mqttConnected && mqttClient) {
+                    try { mqttClient.reconnect(); } catch (e) {}
+                }
+                updateStatusIndicators();
+            }, 10000);
+
+            // Publish status periodically (jika MQTT terhubung)
+            setInterval(() => {
+                if (state.mqttConnected && mqttClient) {
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
+                        dashboard: 'online',
+                        timestamp: new Date().toISOString(),
+                        health: state.health,
+                    }));
+                }
+            }, 15000);
         }
 
         if (document.readyState === 'loading') {

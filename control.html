@@ -1157,7 +1157,7 @@
                 SYSTEM_CONTROL: 'system/control',
                 SETTING_UPDATE: 'setting/update',
                 ACTUATOR_STATUS: 'actuator/status',
-                SYSTEM_STATE: 'system/state',   // Untuk sinkronisasi state antar dashboard
+                SYSTEM_STATE: 'system/state'   // Untuk sinkronisasi state antar dashboard
             },
         };
 
@@ -1177,6 +1177,7 @@
             mqttConnected: false,
             wifiConnected: true,
             sheetConnected: true,
+            dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
         };
 
         // =============================================================
@@ -1249,7 +1250,19 @@
                     state.mqttConnected = true;
                     updateStatusIndicators();
                     showToast('MQTT Terhubung', 'success');
+                    addLog('MQTT Connected - Menunggu data dari ESP32');
+                    // Subscribe ke semua topik yang diperlukan
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
+                    // Kirim status dashboard online
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
+                        command: 'dashboard_online',
+                        timestamp: new Date().toISOString()
+                    }));
                 });
                 mqttClient.on('message', (topic, payload) => {
                     try {
@@ -1672,39 +1685,39 @@
         // =============================================================
         let simInterval = null;
 
-        function startSimulation() {
-            if (simInterval) return;
-            simInterval = setInterval(() => {
-                // Jika mode AUTO dan tidak ada MQTT, simulasikan kontrol sederhana
-                if (state.mode === 'AUTO' && !state.mqttConnected) {
-                    // Simulasi: setpoint 27.5, floating random
-                    const err = state.setpointTemp - (27 + Math.sin(Date.now() / 5000) * 0.8);
-                    if (err > 0.5) {
-                        state.peltierOn = true;
-                        state.peltierPwm = clamp(err * 15, 10, 100);
-                        state.fanOn = true;
-                        state.fanPwm = clamp(err * 8, 10, 100);
-                        state.coolFanOn = state.peltierPwm > 30;
-                        state.coolFanPwm = state.coolFanOn ? clamp(state.peltierPwm * 0.5, 10, 100) : 0;
-                    } else if (err < -0.5) {
-                        state.peltierOn = true;
-                        state.peltierPwm = clamp(Math.abs(err) * 15, 10, 100);
-                        state.fanOn = true;
-                        state.fanPwm = clamp(Math.abs(err) * 6, 10, 100);
-                        state.coolFanOn = state.peltierPwm > 30;
-                        state.coolFanPwm = state.coolFanOn ? clamp(state.peltierPwm * 0.4, 10, 100) : 0;
-                    } else {
-                        state.peltierOn = false;
-                        state.peltierPwm = 0;
-                        state.fanOn = false;
-                        state.fanPwm = 0;
-                        state.coolFanOn = false;
-                        state.coolFanPwm = 0;
-                    }
-                    updateActuatorUI();
-                }
-            }, 2000);
-        }
+        // function startSimulation() {
+        //     if (simInterval) return;
+        //     simInterval = setInterval(() => {
+        //         // Jika mode AUTO dan tidak ada MQTT, simulasikan kontrol sederhana
+        //         if (state.mode === 'AUTO' && !state.mqttConnected) {
+        //             // Simulasi: setpoint 27.5, floating random
+        //             const err = state.setpointTemp - (27 + Math.sin(Date.now() / 5000) * 0.8);
+        //             if (err > 0.5) {
+        //                 state.peltierOn = true;
+        //                 state.peltierPwm = clamp(err * 15, 10, 100);
+        //                 state.fanOn = true;
+        //                 state.fanPwm = clamp(err * 8, 10, 100);
+        //                 state.coolFanOn = state.peltierPwm > 30;
+        //                 state.coolFanPwm = state.coolFanOn ? clamp(state.peltierPwm * 0.5, 10, 100) : 0;
+        //             } else if (err < -0.5) {
+        //                 state.peltierOn = true;
+        //                 state.peltierPwm = clamp(Math.abs(err) * 15, 10, 100);
+        //                 state.fanOn = true;
+        //                 state.fanPwm = clamp(Math.abs(err) * 6, 10, 100);
+        //                 state.coolFanOn = state.peltierPwm > 30;
+        //                 state.coolFanPwm = state.coolFanOn ? clamp(state.peltierPwm * 0.4, 10, 100) : 0;
+        //             } else {
+        //                 state.peltierOn = false;
+        //                 state.peltierPwm = 0;
+        //                 state.fanOn = false;
+        //                 state.fanPwm = 0;
+        //                 state.coolFanOn = false;
+        //                 state.coolFanPwm = 0;
+        //             }
+        //             updateActuatorUI();
+        //         }
+        //     }, 2000);
+        // }
 
         // =============================================================
         // 14. INIT
@@ -1723,9 +1736,24 @@
 
             updateAllUI();
             connectMQTT();
-            startSimulation();
+            // startSimulation();
 
-            // Connect to MQTT status updates
+            // Init chart (kosong dulu)
+            initChart();
+
+            // Init gauges (tampilkan 0 atau --)
+            updateGauges();
+
+                // Add startup messages
+            addNotification('Menunggu data dari ESP32...', 'info');
+            addLog('Sistem menunggu koneksi MQTT');
+
+            // Hide loading screen
+            setTimeout(() => {
+                document.getElementById('loading-screen').classList.add('hide');
+            }, 800);
+
+            // Auto refresh status
             setInterval(() => {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
@@ -1733,12 +1761,16 @@
                 updateStatusIndicators();
             }, 10000);
 
-            setTimeout(() => {
-                document.getElementById('loading-screen').classList.add('hide');
-            }, 600);
-            setTimeout(() => {
-                showToast('Kontrol siap', 'success');
-            }, 1000);
+            // Publish status periodically (jika MQTT terhubung)
+            setInterval(() => {
+                if (state.mqttConnected && mqttClient) {
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
+                        dashboard: 'online',
+                        timestamp: new Date().toISOString(),
+                        health: state.health,
+                    }));
+                }
+            }, 15000);
 
             // Jika mode AUTO, disable manual controls
             updateModeUI();

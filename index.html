@@ -1503,22 +1503,22 @@
                 ACTUATOR_CONTROL: 'actuator/control',
                 SYSTEM_CONTROL: 'system/control',
                 SETTING_UPDATE: 'setting/update',
-                SYSTEM_STATE: 'system/state',   // Untuk sinkronisasi state antar dashboard
+                SYSTEM_STATE: 'system/state'   // Untuk sinkronisasi state antar dashboard
             },
             SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzomrIc68ISrGNVsOTgYI3nPy0kBgQm4WVUCYWfkB8lcwXgBJPbu2j3yxFhoz59VZk9Xw/exec',
             TELEGRAM_BOT_TOKEN: 'YOUR_BOT_TOKEN',
             TELEGRAM_CHAT_ID: 'YOUR_CHAT_ID',
             INTERVAL_SAMPLE: 2000,
-            INTERVAL_LOG: 60000,
+            INTERVAL_LOG: 30000,
         };
 
         // =============================================================
         // 2. STATE
         // =============================================================
         const state = {
-            temp: 27.5,
-            hum: 75,
-            nh3: 5,
+            temp: null,        // null berarti belum ada data
+            hum: null,
+            nh3: null,
             peltierPwm: 0,
             fanPwm: 0,
             coolFanPwm: 0,
@@ -1526,8 +1526,8 @@
             fanOn: false,
             coolFanOn: false,
             mode: 'AUTO', // AUTO | MANUAL
-            setpointTemp: 27.5,
-            setpointHum: 75,
+            setpointTemp: 27.5, // derajat Celsius
+            setpointHum: 75, // default 75% RH
             kp: 2.0,
             ki: 0.5,
             kd: 0.1,
@@ -1543,6 +1543,7 @@
             wifiConnected: true,
             sheetConnected: true,
             chartData: { labels: [], temp: [], hum: [], nh3: [], pwmPeltier: [], pwmFan: [], pwmCool: [] },
+            dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
         };
 
         // =============================================================
@@ -1648,46 +1649,6 @@
 
             // Koneksi
             mqttManager.connect();
-        }
-
-        // Panggil di init()
-        function init() { // Panggil fungsi init()
-            // ... kode init yang sudah ada
-            initMQTT(); // Panggil fungsi initMQTT() untuk mengatur koneksi dan handler MQTT
-            connectMQTT();
-            // Subscribe ke topik sync
-            SyncModule.subscribeState(mqttManager);
-
-            // Set callback untuk perubahan state dari sync
-            SyncModule.setOnStateChange(function(syncState) {
-                if (syncState.mode !== undefined) state.mode = syncState.mode;
-                if (syncState.peltierOn !== undefined) state.peltierOn = syncState.peltierOn;
-                if (syncState.peltierPwm !== undefined) state.peltierPwm = syncState.peltierPwm;
-                if (syncState.fanOn !== undefined) state.fanOn = syncState.fanOn;
-                if (syncState.fanPwm !== undefined) state.fanPwm = syncState.fanPwm;
-                if (syncState.coolFanOn !== undefined) state.coolFanOn = syncState.coolFanOn;
-                if (syncState.coolFanPwm !== undefined) state.coolFanPwm = syncState.coolFanPwm;
-                if (syncState.setpointTemp !== undefined) state.setpointTemp = syncState.setpointTemp;
-                if (syncState.setpointHum !== undefined) state.setpointHum = syncState.setpointHum;
-                if (syncState.kp !== undefined) state.kp = syncState.kp;
-                if (syncState.ki !== undefined) state.ki = syncState.ki;
-                if (syncState.kd !== undefined) state.kd = syncState.kd;
-                if (syncState.error !== undefined) state.error = syncState.error;
-                if (syncState.deltaError !== undefined) state.deltaError = syncState.deltaError;
-                if (syncState.outputPid !== undefined) state.outputPid = syncState.outputPid;
-                if (syncState.temp !== undefined) state.temp = syncState.temp;
-                if (syncState.hum !== undefined) state.hum = syncState.hum;
-                if (syncState.nh3 !== undefined) state.nh3 = syncState.nh3;
-                if (syncState.health !== undefined) state.health = syncState.health;
-                if (syncState.alarms !== undefined) state.alarms = syncState.alarms;
-                if (syncState.notifications !== undefined) state.notifications = syncState.notifications;
-                if (syncState.logs !== undefined) state.logs = syncState.logs;
-                updateAllUI();
-            });
-
-            // Sinkronisasi awal
-            SyncModule.updateLocalState({ mode: 'AUTO' }, mqttManager);
-            // ...
         }
 
         // =============================================================
@@ -1804,15 +1765,15 @@
                     state.mqttConnected = true;
                     updateStatusIndicators();
                     showToast('MQTT Terhubung', 'success');
-                    addLog('MQTT Connected');
-                    // Subscribe
+                    addLog('MQTT Connected - Menunggu data dari ESP32');
+                    // Subscribe ke semua topik yang diperlukan
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
-                    // Publish ready
+                    // Kirim status dashboard online
                     mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
                         command: 'dashboard_online',
                         timestamp: new Date().toISOString()
@@ -1862,6 +1823,7 @@
                     updateGauges();
                     break;
                 case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
+                    // Update status aktuator dari ESP
                     if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
                     if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
                     if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
@@ -1869,6 +1831,7 @@
                     if (data.fanOn !== undefined) state.fanOn = data.fanOn;
                     if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
                     if (data.mode !== undefined) state.mode = data.mode;
+                    needUpdate = true;
                     updateActuatorDisplay();
                     break;
                 case CONFIG.MQTT_TOPICS.SYSTEM_ALARM:
@@ -1885,6 +1848,18 @@
                 default:
                     break;
             }
+
+            if (needUpdate) {
+                // Tandai bahwa kita sudah menerima data
+                state.dataReceived = true;
+                updateSensorDisplay();
+                updateActuatorDisplay();
+                updateGauges();
+                updateHealthDisplay();
+                updateStatusIndicators();
+                updateChartData();
+            }
+
             // update chart with every data
             updateChartData();
         }
@@ -1902,89 +1877,89 @@
         // =============================================================
         // 9. SIMULASI DATA (jika MQTT tidak tersedia)
         // =============================================================
-        let simulationInterval = null;
+        // let simulationInterval = null;
 
-        function startSimulation() {
-            if (simulationInterval) return;
-            simulationInterval = setInterval(() => {
-                // Simulasi perubahan natural
-                state.temp += randomBetween(-0.15, 0.15);
-                state.temp = clamp(state.temp, 24, 32);
-                state.hum += randomBetween(-0.3, 0.3);
-                state.hum = clamp(state.hum, 55, 92);
-                state.nh3 += randomBetween(-0.2, 0.2);
-                state.nh3 = clamp(state.nh3, 0, 30);
+        // function startSimulation() {
+        //     if (simulationInterval) return;
+        //     simulationInterval = setInterval(() => {
+        //         // Simulasi perubahan natural
+        //         state.temp += randomBetween(-0.15, 0.15);
+        //         state.temp = clamp(state.temp, 24, 32);
+        //         state.hum += randomBetween(-0.3, 0.3);
+        //         state.hum = clamp(state.hum, 55, 92);
+        //         state.nh3 += randomBetween(-0.2, 0.2);
+        //         state.nh3 = clamp(state.nh3, 0, 30);
 
-                // Simulasi kontrol Peltier (jika AUTO)
-                if (state.mode === 'AUTO') {
-                    const err = state.setpointTemp - state.temp;
-                    state.error = err;
-                    state.deltaError = (err - (state._lastError || 0)) / 2;
-                    state._lastError = err;
-                    // Sederhana: P-only + I kecil
-                    const p = state.kp * err;
-                    const i = state.ki * (state._integral || 0) + 0.01 * err;
-                    state._integral = (state._integral || 0) + err * 2 / 1000;
-                    state._integral = clamp(state._integral, -10, 10);
-                    const d = state.kd * state.deltaError;
-                    state.outputPid = clamp(p + i + d, -100, 100);
-                    if (state.outputPid > 5) {
-                        state.peltierPwm = clamp(state.outputPid, 10, 100);
-                        state.peltierOn = true;
-                        state.fanPwm = clamp(state.outputPid * 0.6, 10, 100);
-                        state.fanOn = true;
-                        state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.5, 10, 100) : 0;
-                        state.coolFanOn = state.coolFanPwm > 5;
-                    } else if (state.outputPid < -5) {
-                        state.peltierPwm = clamp(Math.abs(state.outputPid), 10, 100);
-                        state.peltierOn = true;
-                        state.fanPwm = clamp(Math.abs(state.outputPid) * 0.4, 10, 100);
-                        state.fanOn = true;
-                        state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.4, 10, 100) : 0;
-                        state.coolFanOn = state.coolFanPwm > 5;
-                    } else {
-                        state.peltierPwm = 0;
-                        state.peltierOn = false;
-                        state.fanPwm = 0;
-                        state.fanOn = false;
-                        state.coolFanPwm = 0;
-                        state.coolFanOn = false;
-                    }
-                }
+        //         // Simulasi kontrol Peltier (jika AUTO)
+        //         if (state.mode === 'AUTO') {
+        //             const err = state.setpointTemp - state.temp;
+        //             state.error = err;
+        //             state.deltaError = (err - (state._lastError || 0)) / 2;
+        //             state._lastError = err;
+        //             // Sederhana: P-only + I kecil
+        //             const p = state.kp * err;
+        //             const i = state.ki * (state._integral || 0) + 0.01 * err;
+        //             state._integral = (state._integral || 0) + err * 2 / 1000;
+        //             state._integral = clamp(state._integral, -10, 10);
+        //             const d = state.kd * state.deltaError;
+        //             state.outputPid = clamp(p + i + d, -100, 100);
+        //             if (state.outputPid > 5) {
+        //                 state.peltierPwm = clamp(state.outputPid, 10, 100);
+        //                 state.peltierOn = true;
+        //                 state.fanPwm = clamp(state.outputPid * 0.6, 10, 100);
+        //                 state.fanOn = true;
+        //                 state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.5, 10, 100) : 0;
+        //                 state.coolFanOn = state.coolFanPwm > 5;
+        //             } else if (state.outputPid < -5) {
+        //                 state.peltierPwm = clamp(Math.abs(state.outputPid), 10, 100);
+        //                 state.peltierOn = true;
+        //                 state.fanPwm = clamp(Math.abs(state.outputPid) * 0.4, 10, 100);
+        //                 state.fanOn = true;
+        //                 state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.4, 10, 100) : 0;
+        //                 state.coolFanOn = state.coolFanPwm > 5;
+        //             } else {
+        //                 state.peltierPwm = 0;
+        //                 state.peltierOn = false;
+        //                 state.fanPwm = 0;
+        //                 state.fanOn = false;
+        //                 state.coolFanPwm = 0;
+        //                 state.coolFanOn = false;
+        //             }
+        //         }
 
-                // Health
-                state.health = clamp(state.health + randomBetween(-0.3, 0.3), 85, 100);
+        //         // Health
+        //         state.health = clamp(state.health + randomBetween(-0.3, 0.3), 85, 100);
 
-                // Update UI
-                updateSensorDisplay();
-                updateActuatorDisplay();
-                updateGauges();
-                updateHealthDisplay();
-                updateChartData();
-                updateStatusIndicators();
+        //         // Update UI
+        //         updateSensorDisplay();
+        //         updateActuatorDisplay();
+        //         updateGauges();
+        //         updateHealthDisplay();
+        //         updateChartData();
+        //         updateStatusIndicators();
 
-                // Log periodically
-                if (Math.random() < 0.02) {
-                    addLog(`Suhu: ${state.temp.toFixed(1)}°C · Kelembaban: ${state.hum.toFixed(1)}%`);
-                }
-                if (Math.random() < 0.01) {
-                    addNotification(`Sistem berjalan normal`, 'success');
-                }
+        //         // Log periodically
+        //         if (Math.random() < 0.02) {
+        //             addLog(`Suhu: ${state.temp.toFixed(1)}°C · Kelembaban: ${state.hum.toFixed(1)}%`);
+        //         }
+        //         if (Math.random() < 0.01) {
+        //             addNotification(`Sistem berjalan normal`, 'success');
+        //         }
 
-                // Simulasi alarm
-                if (state.temp > 31) addAlarm('Suhu Tinggi (>31°C)', true);
-                else addAlarm('Suhu Tinggi (>31°C)', false);
-                if (state.temp < 25) addAlarm('Suhu Rendah (<25°C)', true);
-                else addAlarm('Suhu Rendah (<25°C)', false);
-                if (state.hum > 90) addAlarm('Kelembaban Tinggi (>90%)', true);
-                else addAlarm('Kelembaban Tinggi (>90%)', false);
-                if (state.hum < 60) addAlarm('Kelembaban Rendah (<60%)', true);
-                else addAlarm('Kelembaban Rendah (<60%)', false);
-                if (state.nh3 > 25) addAlarm('NH₃ Tinggi (>25 ppm)', true);
-                else addAlarm('NH₃ Tinggi (>25 ppm)', false);
+        //         // Simulasi alarm
+        //         if (state.temp > 31) addAlarm('Suhu Tinggi (>31°C)', true);
+        //         else addAlarm('Suhu Tinggi (>31°C)', false);
+        //         if (state.temp < 25) addAlarm('Suhu Rendah (<25°C)', true);
+        //         else addAlarm('Suhu Rendah (<25°C)', false);
+        //         if (state.hum > 90) addAlarm('Kelembaban Tinggi (>90%)', true);
+        //         else addAlarm('Kelembaban Tinggi (>90%)', false);
+        //         if (state.hum < 60) addAlarm('Kelembaban Rendah (<60%)', true);
+        //         else addAlarm('Kelembaban Rendah (<60%)', false);
+        //         if (state.nh3 > 25) addAlarm('NH₃ Tinggi (>25 ppm)', true);
+        //         else addAlarm('NH₃ Tinggi (>25 ppm)', false);
 
-            }, CONFIG.INTERVAL_SAMPLE);
-        }
+        //     }, CONFIG.INTERVAL_SAMPLE);
+        // }
 
         // =============================================================
         // 10. UI UPDATE FUNCTIONS
@@ -1994,6 +1969,12 @@
             const t = state.temp,
                 h = state.hum,
                 n = state.nh3;
+            
+            // Jika data belum datang, tampilkan "---"
+            const tempDisplay = (t !== null && t !== undefined) ? t.toFixed(1) : '---';
+            const humDisplay = (h !== null && h !== undefined) ? h.toFixed(1) : '---';
+            const nh3Display = (n !== null && n !== undefined) ? n.toFixed(1) : '---';
+            
             document.getElementById('tempValue').innerHTML = `${t.toFixed(1)} <span class="unit">°C</span>`;
             document.getElementById('humValue').innerHTML = `${h.toFixed(1)} <span class="unit">%RH</span>`;
             document.getElementById('nh3Value').innerHTML = `${n.toFixed(1)} <span class="unit">ppm</span>`;
@@ -2429,9 +2410,9 @@
         // =============================================================
         function init() {
             // Set initial state
-            state.temp = 27.3;
-            state.hum = 74.8;
-            state.nh3 = 4.2;
+            state.temp = null;
+            state.hum = null;
+            state.nh3 = null;
             state.peltierPwm = 0;
             state.fanPwm = 0;
             state.coolFanPwm = 0;
@@ -2443,43 +2424,36 @@
             updateHealthDisplay();
             updateStatusIndicators();
 
-            // Init chart
-            initChart();
-
             // Init gauges
             setTimeout(updateGauges, 100);
 
-            // Connect MQTT
+
+            initMQTT(); // Panggil fungsi initMQTT() untuk mengatur koneksi dan handler MQTT
             connectMQTT();
+            // Init chart (kosong dulu)
+            initChart();
 
-            // Start simulation (will run alongside MQTT)
-            startSimulation();
+            // Init gauges (tampilkan 0 atau --)
+            updateGauges();
 
-            // Add startup messages
-            addNotification('Dashboard siap', 'success');
-            addLog('Sistem dimulai');
+                // Add startup messages
+            addNotification('Menunggu data dari ESP32...', 'info');
+            addLog('Sistem menunggu koneksi MQTT');
 
             // Hide loading screen
             setTimeout(() => {
                 document.getElementById('loading-screen').classList.add('hide');
             }, 800);
 
-            // Show initial toast
-            setTimeout(() => {
-                showToast('Selamat datang di IoT Kandang Ulat Hongkong', 'success');
-            }, 1200);
-
             // Auto refresh status
             setInterval(() => {
-                // Reconnect MQTT if needed
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
                 }
-                // Update status indicators
                 updateStatusIndicators();
             }, 10000);
 
-            // Publish status periodically
+            // Publish status periodically (jika MQTT terhubung)
             setInterval(() => {
                 if (state.mqttConnected && mqttClient) {
                     mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
@@ -2489,14 +2463,47 @@
                     }));
                 }
             }, 15000);
-        }
+            
+            // Subscribe ke topik sync
+            SyncModule.subscribeState(mqttManager);
 
+            // Set callback untuk perubahan state dari sync
+            SyncModule.setOnStateChange(function(syncState) {
+                if (syncState.mode !== undefined) state.mode = syncState.mode;
+                if (syncState.peltierOn !== undefined) state.peltierOn = syncState.peltierOn;
+                if (syncState.peltierPwm !== undefined) state.peltierPwm = syncState.peltierPwm;
+                if (syncState.fanOn !== undefined) state.fanOn = syncState.fanOn;
+                if (syncState.fanPwm !== undefined) state.fanPwm = syncState.fanPwm;
+                if (syncState.coolFanOn !== undefined) state.coolFanOn = syncState.coolFanOn;
+                if (syncState.coolFanPwm !== undefined) state.coolFanPwm = syncState.coolFanPwm;
+                if (syncState.setpointTemp !== undefined) state.setpointTemp = syncState.setpointTemp;
+                if (syncState.setpointHum !== undefined) state.setpointHum = syncState.setpointHum;
+                if (syncState.kp !== undefined) state.kp = syncState.kp;
+                if (syncState.ki !== undefined) state.ki = syncState.ki;
+                if (syncState.kd !== undefined) state.kd = syncState.kd;
+                if (syncState.error !== undefined) state.error = syncState.error;
+                if (syncState.deltaError !== undefined) state.deltaError = syncState.deltaError;
+                if (syncState.outputPid !== undefined) state.outputPid = syncState.outputPid;
+                if (syncState.temp !== undefined) state.temp = syncState.temp;
+                if (syncState.hum !== undefined) state.hum = syncState.hum;
+                if (syncState.nh3 !== undefined) state.nh3 = syncState.nh3;
+                if (syncState.health !== undefined) state.health = syncState.health;
+                if (syncState.alarms !== undefined) state.alarms = syncState.alarms;
+                if (syncState.notifications !== undefined) state.notifications = syncState.notifications;
+                if (syncState.logs !== undefined) state.logs = syncState.logs;
+                updateAllUI();
+            });
+
+            // Sinkronisasi awal
+            SyncModule.updateLocalState({ mode: 'AUTO' }, mqttManager);
+        }
         // Run when DOM ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
-        } else {
+        } else {          
             init();
         }
+        
 
         // =============================================================
         // 20. EXPOSE TO GLOBAL (untuk debugging)

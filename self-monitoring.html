@@ -929,7 +929,7 @@
                 SELF_MONITOR: 'system/selfmonitor',
                 SYSTEM_ALARM: 'system/alarm',
                 SENSOR_STATUS: 'sensor/status',
-                SYSTEM_STATE: 'system/state',   // Untuk sinkronisasi state antar dashboard
+                SYSTEM_STATE: 'system/state'   // Untuk sinkronisasi state antar dashboard
             },
             INTERVAL_CHECK: 10000,
         };
@@ -961,6 +961,7 @@
             mqttConnected: false,
             wifiConnected: true,
             sheetConnected: true,
+            dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
         };
 
         mqttManager.on(MQTT_CONFIG.TOPICS.SELF_MONITOR, function(data) {
@@ -1061,9 +1062,19 @@
                     state.mqttConnected = true;
                     updateStatusIndicators();
                     showToast('MQTT Terhubung', 'success');
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
+                    addLog('MQTT Connected - Menunggu data dari ESP32');
+                    // Subscribe ke semua topik yang diperlukan
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
+                    // Kirim status dashboard online
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
+                        command: 'dashboard_online',
+                        timestamp: new Date().toISOString()
+                    }));
                 });
                 mqttClient.on('message', (topic, payload) => {
                     try {
@@ -1125,6 +1136,17 @@
                 }
                 updateComponentsUI();
             }
+
+            if (needUpdate) {
+                // Tandai bahwa kita sudah menerima data
+                state.dataReceived = true;
+                updateSensorDisplay();
+                updateActuatorDisplay();
+                updateGauges();
+                updateHealthDisplay();
+                updateStatusIndicators();
+                updateChartData();
+            }
         }
 
         // Saat ada alarm baru
@@ -1138,46 +1160,46 @@
         // =============================================================
         let simInterval = null;
 
-        function startSimulation() {
-            if (simInterval) return;
-            simInterval = setInterval(() => {
-                // Simulasi perubahan health secara natural
-                state.health += randomBetween(-0.5, 0.5);
-                state.health = Math.min(Math.max(state.health, 70), 100);
+        // function startSimulation() {
+        //     if (simInterval) return;
+        //     simInterval = setInterval(() => {
+        //         // Simulasi perubahan health secara natural
+        //         state.health += randomBetween(-0.5, 0.5);
+        //         state.health = Math.min(Math.max(state.health, 70), 100);
 
-                // Simulasi komponen kadang offline (5% chance)
-                const compKeys = Object.keys(state.components);
-                const randomComp = compKeys[Math.floor(Math.random() * compKeys.length)];
-                if (Math.random() < 0.03) {
-                    state.components[randomComp].status = 'offline';
-                    addError(`${state.components[randomComp].label} terdeteksi offline`, 'error');
-                } else if (Math.random() < 0.05) {
-                    state.components[randomComp].status = 'online';
-                    state.components[randomComp].lastSeen = new Date();
-                }
+        //         // Simulasi komponen kadang offline (5% chance)
+        //         const compKeys = Object.keys(state.components);
+        //         const randomComp = compKeys[Math.floor(Math.random() * compKeys.length)];
+        //         if (Math.random() < 0.03) {
+        //             state.components[randomComp].status = 'offline';
+        //             addError(`${state.components[randomComp].label} terdeteksi offline`, 'error');
+        //         } else if (Math.random() < 0.05) {
+        //             state.components[randomComp].status = 'online';
+        //             state.components[randomComp].lastSeen = new Date();
+        //         }
 
-                // Simulasi alarm random
-                if (Math.random() < 0.02) {
-                    const msgs = ['Suhu tinggi terdeteksi', 'Kelembaban rendah', 'MQTT timeout', 'I²C error'];
-                    const msg = msgs[Math.floor(Math.random() * msgs.length)];
-                    const existing = state.alarms.find(a => a.message === msg);
-                    if (!existing || !existing.active) {
-                        state.alarms.unshift({ message: msg, active: true, timestamp: new Date() });
-                        if (state.alarms.length > 50) state.alarms.pop();
-                        addError(`Alarm: ${msg}`, 'warning');
-                        showToast(`🔔 ${msg}`, 'warning');
-                    }
-                }
+        //         // Simulasi alarm random
+        //         if (Math.random() < 0.02) {
+        //             const msgs = ['Suhu tinggi terdeteksi', 'Kelembaban rendah', 'MQTT timeout', 'I²C error'];
+        //             const msg = msgs[Math.floor(Math.random() * msgs.length)];
+        //             const existing = state.alarms.find(a => a.message === msg);
+        //             if (!existing || !existing.active) {
+        //                 state.alarms.unshift({ message: msg, active: true, timestamp: new Date() });
+        //                 if (state.alarms.length > 50) state.alarms.pop();
+        //                 addError(`Alarm: ${msg}`, 'warning');
+        //                 showToast(`🔔 ${msg}`, 'warning');
+        //             }
+        //         }
 
-                // Clear old alarms occasionally
-                if (Math.random() < 0.01) {
-                    state.alarms.forEach(a => { if (Math.random() < 0.3) a.active = false; });
-                }
+        //         // Clear old alarms occasionally
+        //         if (Math.random() < 0.01) {
+        //             state.alarms.forEach(a => { if (Math.random() < 0.3) a.active = false; });
+        //         }
 
-                state.lastUpdate = new Date();
-                updateAllUI();
-            }, CONFIG.INTERVAL_CHECK);
-        }
+        //         state.lastUpdate = new Date();
+        //         updateAllUI();
+        //     }, CONFIG.INTERVAL_CHECK);
+        // }
 
         // =============================================================
         // 8. UI UPDATE FUNCTIONS
@@ -1371,7 +1393,7 @@
 
             updateAllUI();
             connectMQTT();
-            startSimulation();
+            // startSimulation();
 
             // Auto reconnect MQTT
             setInterval(() => {

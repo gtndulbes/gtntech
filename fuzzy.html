@@ -1016,7 +1016,7 @@
                 SETTING_UPDATE: 'setting/update',
                 SENSOR_SHT31: 'sensor/sht31',
                 ACTUATOR_STATUS: 'actuator/status',
-                SYSTEM_STATE: 'system/state',   // Untuk sinkronisasi state antar dashboard
+                SYSTEM_STATE: 'system/state'   // Untuk sinkronisasi state antar dashboard
             },
             INTERVAL_SAMPLE: 2000,
         };
@@ -1033,8 +1033,9 @@
             ki: 0.5,
             kd: 0.1,
             outputPid: 0,
-            temp: 27.5,
-            hum: 75,
+            temp: null,        // null berarti belum ada data
+            hum: null,
+            nh3: null,
             mqttConnected: false,
             wifiConnected: true,
             sheetConnected: true,
@@ -1051,6 +1052,7 @@
             mfDelta: ['Z'],
             mfOutput: ['Z'],
             chartData: { labels: [], kp: [], ki: [], kd: [], output: [], error: [] },
+            dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
         };
 
         mqttManager.on('fuzzy/status', function(data) {
@@ -1136,9 +1138,19 @@
                     state.mqttConnected = true;
                     updateStatusIndicators();
                     showToast('MQTT Terhubung', 'success');
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.FUZZY_STATUS);
+                    addLog('MQTT Connected - Menunggu data dari ESP32');
+                    // Subscribe ke semua topik yang diperlukan
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
+                    // Kirim status dashboard online
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
+                        command: 'dashboard_online',
+                        timestamp: new Date().toISOString()
+                    }));
                 });
                 mqttClient.on('message', (topic, payload) => {
                     try {
@@ -1186,8 +1198,15 @@
                     updateAllUI();
                     break;
                 case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
-                    // Just update output if available
-                    if (data.peltierPwm !== undefined) state.outputPid = data.peltierPwm;
+                    // Update status aktuator dari ESP
+                    if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
+                    if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
+                    if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
+                    if (data.peltierOn !== undefined) state.peltierOn = data.peltierOn;
+                    if (data.fanOn !== undefined) state.fanOn = data.fanOn;
+                    if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
+                    if (data.mode !== undefined) state.mode = data.mode;
+                    needUpdate = true;
                     updateAllUI();
                     break;
                 case CONFIG.MQTT_TOPICS.SYSTEM_STATE:
@@ -1198,6 +1217,18 @@
                 default:
                     break;
             }
+            
+            if (needUpdate) {
+                // Tandai bahwa kita sudah menerima data
+                state.dataReceived = true;
+                updateSensorDisplay();
+                updateActuatorDisplay();
+                updateGauges();
+                updateHealthDisplay();
+                updateStatusIndicators();
+                updateChartData();
+            }
+
             updateChartData();
         }
 
@@ -1206,64 +1237,64 @@
         // =============================================================
         let simInterval = null;
 
-        function startSimulation() {
-            if (simInterval) return;
-            simInterval = setInterval(() => {
-                // Simulasi perubahan suhu
-                state.temp += randomBetween(-0.15, 0.15);
-                state.temp = clamp(state.temp, 24, 32);
-                state.hum += randomBetween(-0.3, 0.3);
-                state.hum = clamp(state.hum, 55, 92);
+        // function startSimulation() {
+        //     if (simInterval) return;
+        //     simInterval = setInterval(() => {
+        //         // Simulasi perubahan suhu
+        //         state.temp += randomBetween(-0.15, 0.15);
+        //         state.temp = clamp(state.temp, 24, 32);
+        //         state.hum += randomBetween(-0.3, 0.3);
+        //         state.hum = clamp(state.hum, 55, 92);
 
-                // Hitung error
-                state.error = state.setpointTemp - state.temp;
-                state.deltaError = (state.error - (state._lastError || 0)) / 2;
-                state._lastError = state.error;
+        //         // Hitung error
+        //         state.error = state.setpointTemp - state.temp;
+        //         state.deltaError = (state.error - (state._lastError || 0)) / 2;
+        //         state._lastError = state.error;
 
-                // Simulasi fuzzy-PID sederhana
-                const p = state.kp * state.error;
-                const i = state.ki * (state._integral || 0) + 0.01 * state.error;
-                state._integral = (state._integral || 0) + state.error * 2 / 1000;
-                state._integral = clamp(state._integral, -10, 10);
-                const d = state.kd * state.deltaError;
-                state.outputPid = clamp(p + i + d, -100, 100);
+        //         // Simulasi fuzzy-PID sederhana
+        //         const p = state.kp * state.error;
+        //         const i = state.ki * (state._integral || 0) + 0.01 * state.error;
+        //         state._integral = (state._integral || 0) + state.error * 2 / 1000;
+        //         state._integral = clamp(state._integral, -10, 10);
+        //         const d = state.kd * state.deltaError;
+        //         state.outputPid = clamp(p + i + d, -100, 100);
 
-                // Simulasi aturan fuzzy
-                const absE = Math.abs(state.error);
-                const absDE = Math.abs(state.deltaError);
-                state.mfError = [];
-                state.mfDelta = [];
-                state.mfOutput = [];
-                if (absE < 0.5) { state.mfError.push('Z');
-                    state.mfOutput.push('Z'); }
-                if (absE > 0.3 && absE < 1.5) { state.mfError.push('PS');
-                    state.mfOutput.push('PS'); }
-                if (absE > 1.0) { state.mfError.push('PB');
-                    state.mfOutput.push('PB'); }
-                if (absE < -0.3 && absE > -1.5) { state.mfError.push('NS');
-                    state.mfOutput.push('NS'); }
-                if (absE < -1.0) { state.mfError.push('NB');
-                    state.mfOutput.push('NB'); }
-                if (absDE < 0.1) state.mfDelta.push('Z');
-                if (absDE > 0.05 && absDE < 0.3) state.mfDelta.push('PS');
-                if (absDE > 0.2) state.mfDelta.push('PB');
-                if (absDE < -0.05 && absDE > -0.3) state.mfDelta.push('NS');
-                if (absDE < -0.2) state.mfDelta.push('NB');
-                if (state.mfError.length === 0) state.mfError.push('Z');
-                if (state.mfDelta.length === 0) state.mfDelta.push('Z');
-                if (state.mfOutput.length === 0) state.mfOutput.push('Z');
+        //         // Simulasi aturan fuzzy
+        //         const absE = Math.abs(state.error);
+        //         const absDE = Math.abs(state.deltaError);
+        //         state.mfError = [];
+        //         state.mfDelta = [];
+        //         state.mfOutput = [];
+        //         if (absE < 0.5) { state.mfError.push('Z');
+        //             state.mfOutput.push('Z'); }
+        //         if (absE > 0.3 && absE < 1.5) { state.mfError.push('PS');
+        //             state.mfOutput.push('PS'); }
+        //         if (absE > 1.0) { state.mfError.push('PB');
+        //             state.mfOutput.push('PB'); }
+        //         if (absE < -0.3 && absE > -1.5) { state.mfError.push('NS');
+        //             state.mfOutput.push('NS'); }
+        //         if (absE < -1.0) { state.mfError.push('NB');
+        //             state.mfOutput.push('NB'); }
+        //         if (absDE < 0.1) state.mfDelta.push('Z');
+        //         if (absDE > 0.05 && absDE < 0.3) state.mfDelta.push('PS');
+        //         if (absDE > 0.2) state.mfDelta.push('PB');
+        //         if (absDE < -0.05 && absDE > -0.3) state.mfDelta.push('NS');
+        //         if (absDE < -0.2) state.mfDelta.push('NB');
+        //         if (state.mfError.length === 0) state.mfError.push('Z');
+        //         if (state.mfDelta.length === 0) state.mfDelta.push('Z');
+        //         if (state.mfOutput.length === 0) state.mfOutput.push('Z');
 
-                // Update rules
-                state.rules.forEach(r => {
-                    r.active = Math.random() > 0.6;
-                    r.weight = 0.5 + Math.random() * 0.5;
-                });
+        //         // Update rules
+        //         state.rules.forEach(r => {
+        //             r.active = Math.random() > 0.6;
+        //             r.weight = 0.5 + Math.random() * 0.5;
+        //         });
 
-                updateAllUI();
-                updateChartData();
-                updateStatusIndicators();
-            }, CONFIG.INTERVAL_SAMPLE);
-        }
+        //         updateAllUI();
+        //         updateChartData();
+        //         updateStatusIndicators();
+        //     }, CONFIG.INTERVAL_SAMPLE);
+        // }
 
         // =============================================================
         // 8. UI UPDATE
@@ -1542,24 +1573,42 @@
             state.error = state.setpointTemp - state.temp;
 
             updateAllUI();
-            updateStatusIndicators();
-            initChart();
             connectMQTT();
-            startSimulation();
+            // startSimulation();
 
+            // Init chart (kosong dulu)
+            initChart();
+
+            // Init gauges (tampilkan 0 atau --)
+            updateGauges();
+
+                // Add startup messages
+            addNotification('Menunggu data dari ESP32...', 'info');
+            addLog('Sistem menunggu koneksi MQTT');
+
+            // Hide loading screen
             setTimeout(() => {
                 document.getElementById('loading-screen').classList.add('hide');
-            }, 600);
-            setTimeout(() => {
-                showToast('Fuzzy PID siap', 'success');
-            }, 1000);
+            }, 800);
 
+            // Auto refresh status
             setInterval(() => {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
                 }
                 updateStatusIndicators();
             }, 10000);
+
+            // Publish status periodically (jika MQTT terhubung)
+            setInterval(() => {
+                if (state.mqttConnected && mqttClient) {
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
+                        dashboard: 'online',
+                        timestamp: new Date().toISOString(),
+                        health: state.health,
+                    }));
+                }
+            }, 15000);
         }
 
         if (document.readyState === 'loading') {

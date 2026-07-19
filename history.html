@@ -1113,52 +1113,52 @@
         // =============================================================
         // 6. DATA GENERATOR (Mock)
         // =============================================================
-        function generateMockData(count) {
-            count = count || 120;
-            var data = [];
-            var now = new Date();
-            for (var i = 0; i < count; i++) {
-                var t = now.getTime() - i * 60000 * (1 + Math.random() * 2);
-                var date = new Date(t);
-                var temp = 26 + Math.sin(i / 18) * 2.5 + randomBetween(-0.5, 0.5);
-                var hum = 70 + Math.sin(i / 13 + 1) * 12 + randomBetween(-1, 1);
-                var nh3 = 3 + Math.sin(i / 22 + 2) * 2.5 + randomBetween(-0.3, 0.3);
-                var modes = ['AUTO', 'AUTO', 'AUTO', 'MANUAL'];
-                var alarms = ['Normal', 'Normal', 'Normal', 'Normal', 'Suhu Tinggi', 'Normal', 'NH3 Tinggi'];
-                var statuses = ['Normal', 'Normal', 'Warning', 'Normal', 'Danger', 'Normal'];
-                data.push({
-                    timestamp: date.toISOString(),
-                    temperature: clamp(temp, 24, 32),
-                    humidity: clamp(hum, 55, 92),
-                    nh3: clamp(nh3, 0, 30),
-                    peltierPwm: Math.round(randomBetween(0, 100)),
-                    fanPwm: Math.round(randomBetween(0, 100)),
-                    coolFanPwm: Math.round(randomBetween(0, 100)),
-                    kp: (2 + Math.random() * 1).toFixed(2),
-                    ki: (0.3 + Math.random() * 0.6).toFixed(2),
-                    kd: (0.05 + Math.random() * 0.15).toFixed(2),
-                    mode: modes[Math.floor(Math.random() * modes.length)],
-                    alarm: alarms[Math.floor(Math.random() * alarms.length)],
-                    status: statuses[Math.floor(Math.random() * statuses.length)]
-                });
-            }
-            data.sort(function(a, b) {
-                return new Date(a.timestamp) - new Date(b.timestamp);
-            });
-            return data;
-        }
+        // function generateMockData(count) {
+        //     count = count || 120;
+        //     var data = [];
+        //     var now = new Date();
+        //     for (var i = 0; i < count; i++) {
+        //         var t = now.getTime() - i * 60000 * (1 + Math.random() * 2);
+        //         var date = new Date(t);
+        //         var temp = 26 + Math.sin(i / 18) * 2.5 + randomBetween(-0.5, 0.5);
+        //         var hum = 70 + Math.sin(i / 13 + 1) * 12 + randomBetween(-1, 1);
+        //         var nh3 = 3 + Math.sin(i / 22 + 2) * 2.5 + randomBetween(-0.3, 0.3);
+        //         var modes = ['AUTO', 'AUTO', 'AUTO', 'MANUAL'];
+        //         var alarms = ['Normal', 'Normal', 'Normal', 'Normal', 'Suhu Tinggi', 'Normal', 'NH3 Tinggi'];
+        //         var statuses = ['Normal', 'Normal', 'Warning', 'Normal', 'Danger', 'Normal'];
+        //         data.push({
+        //             timestamp: date.toISOString(),
+        //             temperature: clamp(temp, 24, 32),
+        //             humidity: clamp(hum, 55, 92),
+        //             nh3: clamp(nh3, 0, 30),
+        //             peltierPwm: Math.round(randomBetween(0, 100)),
+        //             fanPwm: Math.round(randomBetween(0, 100)),
+        //             coolFanPwm: Math.round(randomBetween(0, 100)),
+        //             kp: (2 + Math.random() * 1).toFixed(2),
+        //             ki: (0.3 + Math.random() * 0.6).toFixed(2),
+        //             kd: (0.05 + Math.random() * 0.15).toFixed(2),
+        //             mode: modes[Math.floor(Math.random() * modes.length)],
+        //             alarm: alarms[Math.floor(Math.random() * alarms.length)],
+        //             status: statuses[Math.floor(Math.random() * statuses.length)]
+        //         });
+        //     }
+        //     data.sort(function(a, b) {
+        //         return new Date(a.timestamp) - new Date(b.timestamp);
+        //     });
+        //     return data;
+        // }
 
         // =============================================================
         // 7. LOAD DATA (LANGSUNG MOCK)
         // =============================================================
-        function loadData() {
-            var mock = generateMockData(120);
-            state.allData = mock;
-            state.lastSync = new Date();
-            filterData();
-            document.getElementById('loading-screen').classList.add('hide');
-            showToast('Data dimuat: ' + mock.length + ' records', 'success');
-        }
+        // function loadData() {
+        //     var mock = generateMockData(120);
+        //     state.allData = mock;
+        //     state.lastSync = new Date();
+        //     filterData();
+        //     document.getElementById('loading-screen').classList.add('hide');
+        //     showToast('Data dimuat: ' + mock.length + ' records', 'success');
+        // }
 
         // =============================================================
         // 8. FILTER & SEARCH

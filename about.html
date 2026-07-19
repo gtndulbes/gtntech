@@ -929,6 +929,7 @@
             mqttConnected: false,
             wifiConnected: true,
             sheetConnected: false,
+            dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
         };
 
         // =============================================================
@@ -1027,10 +1028,37 @@
         // 7. INIT
         // =============================================================
         function init() {
-            connectMQTT();
-            updateStatusIndicators();
+                // Set initial state (data kosong, menunggu MQTT)
+            state.temp = null;
+            state.hum = null;
+            state.nh3 = null;
+            state.peltierPwm = 0;
+            state.fanPwm = 0;
+            state.coolFanPwm = 0;
+            state.health = 100;
 
-            // Auto reconnect MQTT
+            // Update UI dengan placeholder "---" atau "Menunggu data..."
+            updateSensorDisplay();   // fungsi ini harus handle null
+            updateActuatorDisplay();
+            updateHealthDisplay();
+            connectMQTT();
+
+            // Init chart (kosong dulu)
+            initChart();
+
+            // Init gauges (tampilkan 0 atau --)
+            updateGauges();
+
+                // Add startup messages
+            addNotification('Menunggu data dari ESP32...', 'info');
+            addLog('Sistem menunggu koneksi MQTT');
+
+            // Hide loading screen
+            setTimeout(() => {
+                document.getElementById('loading-screen').classList.add('hide');
+            }, 800);
+
+            // Auto refresh status
             setInterval(() => {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
@@ -1038,13 +1066,16 @@
                 updateStatusIndicators();
             }, 10000);
 
-            // Sembunyikan loading screen
-            setTimeout(() => {
-                document.getElementById('loading-screen').classList.add('hide');
-            }, 600);
-            setTimeout(() => {
-                showToast('Halaman About siap', 'success');
-            }, 1000);
+            // Publish status periodically (jika MQTT terhubung)
+            setInterval(() => {
+                if (state.mqttConnected && mqttClient) {
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
+                        dashboard: 'online',
+                        timestamp: new Date().toISOString(),
+                        health: state.health,
+                    }));
+                }
+            }, 15000);
 
             console.log('ℹ️ About Page Loaded');
         }

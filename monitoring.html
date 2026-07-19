@@ -1047,7 +1047,7 @@
                 SENSOR_SHT31: 'sensor/sht31',
                 SENSOR_MQ135: 'sensor/mq135',
                 ACTUATOR_STATUS: 'actuator/status',
-                SYSTEM_STATE: 'system/state',  // Untuk sinkronisasi state antar dashboard
+                SYSTEM_STATE: 'system/state' // Untuk sinkronisasi state antar dashboard
             },
             INTERVAL_SAMPLE: 2000,
         };
@@ -1056,9 +1056,9 @@
         // 2. STATE
         // =============================================================
         const state = {
-            temp: 27.5,
-            hum: 75,
-            nh3: 5,
+            temp: null,        // null berarti belum ada data
+            hum: null,
+            nh3: null,
             peltierPwm: 0,
             fanPwm: 0,
             coolFanPwm: 0,
@@ -1083,6 +1083,7 @@
             nh3Count: 0,
             chartData: { labels: [], temp: [], hum: [], nh3: [], pwmPeltier: [], pwmFan: [], pwmCool: [] },
             tableData: [],
+            dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
         };
 
         // =============================================================
@@ -1165,9 +1166,19 @@
                     state.mqttConnected = true;
                     updateStatusIndicators();
                     showToast('MQTT Terhubung', 'success');
+                    addLog('MQTT Connected - Menunggu data dari ESP32');
+                    // Subscribe ke semua topik yang diperlukan
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
+                    // Kirim status dashboard online
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
+                        command: 'dashboard_online',
+                        timestamp: new Date().toISOString()
+                    }));
                 });
                 mqttClient.on('message', (topic, payload) => {
                     try {
@@ -1211,6 +1222,7 @@
                     updateTable();
                     break;
                 case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
+                    // Update status aktuator dari ESP
                     if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
                     if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
                     if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
@@ -1218,6 +1230,7 @@
                     if (data.fanOn !== undefined) state.fanOn = data.fanOn;
                     if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
                     if (data.mode !== undefined) state.mode = data.mode;
+                    needUpdate = true;
                     updateChartData();
                     updateTable();
                     break;
@@ -1229,60 +1242,71 @@
                 default:
                     break;
             }
+
+            if (needUpdate) {
+                // Tandai bahwa kita sudah menerima data
+                state.dataReceived = true;
+                updateSensorDisplay();
+                updateActuatorDisplay();
+                updateGauges();
+                updateHealthDisplay();
+                updateStatusIndicators();
+                updateChartData();
+            }
         }
 
         // =============================================================
         // 7. SIMULASI DATA
         // =============================================================
-        let simulationInterval = null;
+        // let simulationInterval = null;
 
-        function startSimulation() {
-            if (simulationInterval) return;
-            simulationInterval = setInterval(() => {
-                state.temp += randomBetween(-0.15, 0.15);
-                state.temp = clamp(state.temp, 24, 32);
-                state.hum += randomBetween(-0.3, 0.3);
-                state.hum = clamp(state.hum, 55, 92);
-                state.nh3 += randomBetween(-0.2, 0.2);
-                state.nh3 = clamp(state.nh3, 0, 30);
+        // function startSimulation() {
+        //     if (simulationInterval) return;
+        //     simulationInterval = setInterval(() => {
+        //         state.temp += randomBetween(-0.15, 0.15);
+        //         state.temp = clamp(state.temp, 24, 32);
+        //         state.hum += randomBetween(-0.3, 0.3);
+        //         state.hum = clamp(state.hum, 55, 92);
+        //         state.nh3 += randomBetween(-0.2, 0.2);
+        //         state.nh3 = clamp(state.nh3, 0, 30);
 
-                // Simulasi kontrol sederhana
-                if (state.mode === 'AUTO') {
-                    const err = 27.5 - state.temp;
-                    if (err > 1) {
-                        state.peltierPwm = clamp(err * 8, 10, 100);
-                        state.peltierOn = true;
-                        state.fanPwm = clamp(err * 4, 10, 100);
-                        state.fanOn = true;
-                        state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.5, 10, 100) : 0;
-                        state.coolFanOn = state.coolFanPwm > 5;
-                    } else if (err < -1) {
-                        state.peltierPwm = clamp(Math.abs(err) * 8, 10, 100);
-                        state.peltierOn = true;
-                        state.fanPwm = clamp(Math.abs(err) * 3, 10, 100);
-                        state.fanOn = true;
-                        state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.4, 10, 100) : 0;
-                        state.coolFanOn = state.coolFanPwm > 5;
-                    } else {
-                        state.peltierPwm = 0;
-                        state.peltierOn = false;
-                        state.fanPwm = 0;
-                        state.fanOn = false;
-                        state.coolFanPwm = 0;
-                        state.coolFanOn = false;
-                    }
-                }
+        //         // Simulasi kontrol sederhana
+        //         if (state.mode === 'AUTO') {
+        //             const err = 27.5 - state.temp;
+        //             if (err > 1) {
+        //                 state.peltierPwm = clamp(err * 8, 10, 100);
+        //                 state.peltierOn = true;
+        //                 state.fanPwm = clamp(err * 4, 10, 100);
+        //                 state.fanOn = true;
+        //                 state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.5, 10, 100) : 0;
+        //                 state.coolFanOn = state.coolFanPwm > 5;
+        //             } else if (err < -1) {
+        //                 state.peltierPwm = clamp(Math.abs(err) * 8, 10, 100);
+        //                 state.peltierOn = true;
+        //                 state.fanPwm = clamp(Math.abs(err) * 3, 10, 100);
+        //                 state.fanOn = true;
+        //                 state.coolFanPwm = state.peltierPwm > 30 ? clamp(state.peltierPwm * 0.4, 10, 100) : 0;
+        //                 state.coolFanOn = state.coolFanPwm > 5;
+        //             } else {
+        //                 state.peltierPwm = 0;
+        //                 state.peltierOn = false;
+        //                 state.fanPwm = 0;
+        //                 state.fanOn = false;
+        //                 state.coolFanPwm = 0;
+        //                 state.coolFanOn = false;
+        //             }
+        //         }
 
-                updateStats('temp', state.temp);
-                updateStats('hum', state.hum);
-                updateStats('nh3', state.nh3);
-                updateSensorDisplay();
-                updateGauges();
-                updateChartData();
-                updateTable();
-                updateStatusIndicators();
-            }, CONFIG.INTERVAL_SAMPLE);
-        }
+        //         updateStats('temp', state.temp);
+        //         updateStats('hum', state.hum);
+        //         updateStats('nh3', state.nh3);
+        //         updateSensorDisplay();
+        //         updateGauges();
+        //         updateChartData();
+        //         updateTable();
+        //         updateStatusIndicators();
+        //     }, CONFIG.INTERVAL_SAMPLE);
+        // }
 
         // =============================================================
         // 8. STATISTICS
@@ -1322,6 +1346,12 @@
             const t = state.temp,
                 h = state.hum,
                 n = state.nh3;
+
+                // Jika data belum datang, tampilkan "---"
+            const tempDisplay = (t !== null && t !== undefined) ? t.toFixed(1) : '---';
+            const humDisplay = (h !== null && h !== undefined) ? h.toFixed(1) : '---';
+            const nh3Display = (n !== null && n !== undefined) ? n.toFixed(1) : '---';
+
             document.getElementById('gaugeTempVal').textContent = t.toFixed(1);
             document.getElementById('gaugeHumVal').textContent = h.toFixed(1);
             document.getElementById('gaugeNh3Val').textContent = n.toFixed(1);
@@ -1603,19 +1633,21 @@
         // 14. INIT
         // =============================================================
         function init() {
-            state.temp = 27.3;
-            state.hum = 74.8;
-            state.nh3 = 4.2;
+            state.temp = null;
+            state.hum = null;
+            state.nh3 = null;
             state.tempMin = state.tempMax = state.temp;
             state.humMin = state.humMax = state.hum;
             state.nh3Min = state.nh3Max = state.nh3;
 
             updateSensorDisplay();
+            updateActuatorDisplay();
+            updateHealthDisplay();
             updateGauges();
             updateStatusIndicators();
             initChart();
             connectMQTT();
-            startSimulation();
+            // startSimulation();
 
             // Inisialisasi statistik
             document.getElementById('tempMin').textContent = state.temp.toFixed(1);
@@ -1628,20 +1660,33 @@
             document.getElementById('nh3Max').textContent = state.nh3.toFixed(1);
             document.getElementById('nh3Avg').textContent = state.nh3.toFixed(1);
 
+            // Add startup messages
+            addNotification('Menunggu data dari ESP32...', 'info');
+            addLog('Sistem menunggu koneksi MQTT');
+
+            // Hide loading screen
             setTimeout(() => {
                 document.getElementById('loading-screen').classList.add('hide');
-            }, 600);
-            setTimeout(() => {
-                showToast('Monitoring siap', 'success');
-            }, 1000);
+            }, 800);
 
-            // Auto reconnect MQTT
+            // Auto refresh status
             setInterval(() => {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
                 }
                 updateStatusIndicators();
             }, 10000);
+
+            // Publish status periodically (jika MQTT terhubung)
+            setInterval(() => {
+                if (state.mqttConnected && mqttClient) {
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
+                        dashboard: 'online',
+                        timestamp: new Date().toISOString(),
+                        health: state.health,
+                    }));
+                }
+            }, 15000);
 
             // Subscribe ke topik sync
             SyncModule.subscribeState(mqttManager);

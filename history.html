@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
     </script>
-    <script src="assets/js/mqtt-config.js">
+    <script src="assets/js/sync.js">
     </script>
     <style>
         /* ===== RESET & BASE ===== */
@@ -68,6 +68,9 @@
             padding: 16px 0;
         }
         .sidebar:hover {
+            width: 240px;
+        }
+        .sidebar.open {
             width: 240px;
         }
         .sidebar .logo {
@@ -367,7 +370,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            transition: opacity 0.4s, visibility 0.4s;
+            transition: opacity 0.6s, visibility 0.6s;
         }
         #loading-screen.hide {
             opacity: 0;
@@ -993,7 +996,17 @@
         // 1. CONFIGURATION
         // =============================================================
         var CONFIG = {
-            PAGE_SIZE: 15
+            MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
+            MQTT_TOPICS: {
+                SENSOR_SHT31: 'sensor/sht31',
+                SENSOR_MQ135: 'sensor/mq135',
+                ACTUATOR_STATUS: 'actuator/status',
+                SYSTEM_STATE: 'system/state',
+                SYSTEM_CONTROL: 'system/control',
+                FUZZY_STATUS: 'fuzzy/status',
+            },
+            PAGE_SIZE: 15,
+            MAX_RECORDS: 500,
         };
 
         // =============================================================
@@ -1006,31 +1019,26 @@
             pageSize: CONFIG.PAGE_SIZE,
             filterRange: 'hari',
             searchQuery: '',
-            lastSync: null
+            lastSync: null,
+            mqttConnected: false,
+            wifiConnected: true,
+            sheetConnected: true,
+            dataReceived: false,
+            initialized: false,
+            // untuk menyimpan nilai terakhir dari MQTT
+            currentTemp: 27.0,
+            currentHum: 70.0,
+            currentNh3: 3.0,
+            currentPeltierPwm: 0,
+            currentFanPwm: 0,
+            currentCoolFanPwm: 0,
+            currentMode: 'AUTO',
+            currentKp: 2.0,
+            currentKi: 0.5,
+            currentKd: 0.1,
+            currentAlarm: 'Normal',
+            currentStatus: 'Normal',
         };
-
-        var initialized = false;
-
-        mqttManager.on(MQTT_CONFIG.TOPICS.SENSOR_SHT31, function(data) {
-        // Tambahkan data baru ke tabel (dengan timestamp sekarang)
-        var newRow = {
-            timestamp: new Date().toISOString(),
-            temperature: data.temperature || 0,
-            humidity: data.humidity || 0,
-            nh3: state.nh3 || 0, // ambil dari state jika ada
-            peltierPwm: state.peltierPwm || 0,
-            fanPwm: state.fanPwm || 0,
-            coolFanPwm: state.coolFanPwm || 0,
-            mode: state.mode || 'AUTO',
-            alarm: 'Normal',
-            status: 'Normal'
-        };
-        // Tambahkan ke data
-        state.allData.push(newRow);
-        if (state.allData.length > 500) state.allData.shift();
-        // Re-filter & render
-        filterData();
-        });
 
         // =============================================================
         // 3. UTILITY
@@ -1038,11 +1046,6 @@
         function formatTime(d) {
             d = d || new Date();
             return d.toLocaleTimeString('id-ID', { hour12: false });
-        }
-
-        function safeNumber(value, fallback = 0) {
-            var num = Number(value);
-            return Number.isFinite(num) ? num : fallback;
         }
 
         function formatDateTime(d) {
@@ -1063,6 +1066,16 @@
 
         function clamp(v, min, max) {
             return Math.min(Math.max(v, min), max);
+        }
+
+        function safeNumber(value, fallback) {
+            fallback = fallback || 0;
+            var num = Number(value);
+            return Number.isFinite(num) ? num : fallback;
+        }
+
+        function uid() {
+            return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         }
 
         // =============================================================
@@ -1102,73 +1115,221 @@
 
         var menuToggle = document.getElementById('menuToggle');
         var sidebar = document.getElementById('sidebar');
+
+        function setSidebarOpen(open) {
+            if (window.innerWidth <= 1024) {
+                sidebar.classList.toggle('open', open);
+            } else {
+                sidebar.classList.remove('open');
+            }
+        }
+
         menuToggle.addEventListener('click', function(e) {
             e.stopPropagation();
-            sidebar.classList.toggle('open');
+            setSidebarOpen(!sidebar.classList.contains('open'));
         });
         document.addEventListener('click', function(e) {
             if (window.innerWidth <= 1024) {
                 if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
-                    sidebar.classList.remove('open');
+                    setSidebarOpen(false);
                 }
             }
         });
         window.addEventListener('resize', function() {
-            if (window.innerWidth > 1024) sidebar.classList.remove('open');
+            if (window.innerWidth > 1024) {
+                setSidebarOpen(false);
+            }
         });
 
         // =============================================================
-        // 6. DATA GENERATOR (Mock)
+        // 6. MQTT
         // =============================================================
-        // function generateMockData(count) {
-        //     count = count || 120;
-        //     var data = [];
-        //     var now = new Date();
-        //     for (var i = 0; i < count; i++) {
-        //         var t = now.getTime() - i * 60000 * (1 + Math.random() * 2);
-        //         var date = new Date(t);
-        //         var temp = 26 + Math.sin(i / 18) * 2.5 + randomBetween(-0.5, 0.5);
-        //         var hum = 70 + Math.sin(i / 13 + 1) * 12 + randomBetween(-1, 1);
-        //         var nh3 = 3 + Math.sin(i / 22 + 2) * 2.5 + randomBetween(-0.3, 0.3);
-        //         var modes = ['AUTO', 'AUTO', 'AUTO', 'MANUAL'];
-        //         var alarms = ['Normal', 'Normal', 'Normal', 'Normal', 'Suhu Tinggi', 'Normal', 'NH3 Tinggi'];
-        //         var statuses = ['Normal', 'Normal', 'Warning', 'Normal', 'Danger', 'Normal'];
-        //         data.push({
-        //             timestamp: date.toISOString(),
-        //             temperature: clamp(temp, 24, 32),
-        //             humidity: clamp(hum, 55, 92),
-        //             nh3: clamp(nh3, 0, 30),
-        //             peltierPwm: Math.round(randomBetween(0, 100)),
-        //             fanPwm: Math.round(randomBetween(0, 100)),
-        //             coolFanPwm: Math.round(randomBetween(0, 100)),
-        //             kp: (2 + Math.random() * 1).toFixed(2),
-        //             ki: (0.3 + Math.random() * 0.6).toFixed(2),
-        //             kd: (0.05 + Math.random() * 0.15).toFixed(2),
-        //             mode: modes[Math.floor(Math.random() * modes.length)],
-        //             alarm: alarms[Math.floor(Math.random() * alarms.length)],
-        //             status: statuses[Math.floor(Math.random() * statuses.length)]
-        //         });
-        //     }
-        //     data.sort(function(a, b) {
-        //         return new Date(a.timestamp) - new Date(b.timestamp);
-        //     });
-        //     return data;
-        // }
+        var mqttClient = null;
+
+        function connectMQTT() {
+            try {
+                mqttClient = mqtt.connect(CONFIG.MQTT_BROKER, {
+                    clientId: 'datalogger_' + uid(),
+                    clean: true,
+                    reconnectPeriod: 3000,
+                });
+                mqttClient.on('connect', function() {
+                    state.mqttConnected = true;
+                    updateStatusIndicators();
+                    showToast('MQTT Terhubung', 'success');
+                    // Subscribe ke topik sensor
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.FUZZY_STATUS);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_STATE);
+                    // Subscribe ke sync state
+                    if (typeof SyncModule !== 'undefined') {
+                        SyncModule.subscribeState(mqttClient);
+                    }
+                    // Kirim status online
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
+                        command: 'dashboard_online',
+                        timestamp: new Date().toISOString()
+                    }));
+                });
+                mqttClient.on('message', function(topic, payload) {
+                    try {
+                        var data = JSON.parse(payload.toString());
+                        handleMqttMessage(topic, data);
+                    } catch (e) { /* ignore */ }
+                });
+                mqttClient.on('close', function() {
+                    state.mqttConnected = false;
+                    updateStatusIndicators();
+                });
+                mqttClient.on('error', function() {
+                    state.mqttConnected = false;
+                    updateStatusIndicators();
+                });
+            } catch (e) {
+                state.mqttConnected = false;
+                updateStatusIndicators();
+            }
+        }
+
+        function handleMqttMessage(topic, data) {
+            var updated = false;
+
+            // Update state terbaru dari MQTT
+            if (topic === CONFIG.MQTT_TOPICS.SENSOR_SHT31) {
+                if (data.temperature !== undefined) {
+                    state.currentTemp = data.temperature;
+                    updated = true;
+                }
+                if (data.humidity !== undefined) {
+                    state.currentHum = data.humidity;
+                    updated = true;
+                }
+            }
+
+            if (topic === CONFIG.MQTT_TOPICS.SENSOR_MQ135) {
+                if (data.nh3 !== undefined) {
+                    state.currentNh3 = data.nh3;
+                    updated = true;
+                }
+            }
+
+            if (topic === CONFIG.MQTT_TOPICS.ACTUATOR_STATUS) {
+                if (data.peltierPwm !== undefined) state.currentPeltierPwm = data.peltierPwm;
+                if (data.fanPwm !== undefined) state.currentFanPwm = data.fanPwm;
+                if (data.coolFanPwm !== undefined) state.currentCoolFanPwm = data.coolFanPwm;
+                if (data.mode !== undefined) state.currentMode = data.mode;
+                updated = true;
+            }
+
+            if (topic === CONFIG.MQTT_TOPICS.FUZZY_STATUS) {
+                if (data.kp !== undefined) state.currentKp = data.kp;
+                if (data.ki !== undefined) state.currentKi = data.ki;
+                if (data.kd !== undefined) state.currentKd = data.kd;
+                updated = true;
+            }
+
+            if (topic === CONFIG.MQTT_TOPICS.SYSTEM_STATE) {
+                if (typeof SyncModule !== 'undefined') {
+                    SyncModule.handleStateMessage(topic, JSON.stringify(data));
+                }
+                updated = true;
+            }
+
+            // Jika ada update, tambahkan ke data logger
+            if (updated) {
+                state.dataReceived = true;
+                // Tambahkan data baru ke tabel
+                var newRow = {
+                    timestamp: new Date().toISOString(),
+                    temperature: state.currentTemp,
+                    humidity: state.currentHum,
+                    nh3: state.currentNh3,
+                    peltierPwm: state.currentPeltierPwm,
+                    fanPwm: state.currentFanPwm,
+                    coolFanPwm: state.currentCoolFanPwm,
+                    kp: state.currentKp,
+                    ki: state.currentKi,
+                    kd: state.currentKd,
+                    mode: state.currentMode,
+                    alarm: state.currentAlarm || 'Normal',
+                    status: state.currentStatus || 'Normal',
+                };
+                state.allData.push(newRow);
+                if (state.allData.length > CONFIG.MAX_RECORDS) {
+                    state.allData.shift();
+                }
+                state.lastSync = new Date();
+                filterData();
+                // Sembunyikan loading
+                var ls = document.getElementById('loading-screen');
+                if (ls) ls.classList.add('hide');
+            }
+        }
 
         // =============================================================
-        // 7. LOAD DATA (LANGSUNG MOCK)
+        // 7. GENERATE MOCK DATA (jika tidak ada MQTT)
         // =============================================================
-        // function loadData() {
-        //     var mock = generateMockData(120);
-        //     state.allData = mock;
-        //     state.lastSync = new Date();
-        //     filterData();
-        //     document.getElementById('loading-screen').classList.add('hide');
-        //     showToast('Data dimuat: ' + mock.length + ' records', 'success');
-        // }
+        function generateMockData(count) {
+            count = count || 80;
+            var data = [];
+            var now = new Date();
+            for (var i = 0; i < count; i++) {
+                var t = now.getTime() - i * 60000 * (1 + Math.random() * 2);
+                var date = new Date(t);
+                var temp = 26 + Math.sin(i / 18) * 2.5 + randomBetween(-0.5, 0.5);
+                var hum = 70 + Math.sin(i / 13 + 1) * 12 + randomBetween(-1, 1);
+                var nh3 = 3 + Math.sin(i / 22 + 2) * 2.5 + randomBetween(-0.3, 0.3);
+                var modes = ['AUTO', 'AUTO', 'AUTO', 'MANUAL'];
+                var alarms = ['Normal', 'Normal', 'Normal', 'Normal', 'Suhu Tinggi', 'Normal', 'NH3 Tinggi'];
+                var statuses = ['Normal', 'Normal', 'Warning', 'Normal', 'Danger', 'Normal'];
+                data.push({
+                    timestamp: date.toISOString(),
+                    temperature: clamp(temp, 24, 32),
+                    humidity: clamp(hum, 55, 92),
+                    nh3: clamp(nh3, 0, 30),
+                    peltierPwm: Math.round(randomBetween(0, 100)),
+                    fanPwm: Math.round(randomBetween(0, 100)),
+                    coolFanPwm: Math.round(randomBetween(0, 100)),
+                    kp: (2 + Math.random() * 1).toFixed(2),
+                    ki: (0.3 + Math.random() * 0.6).toFixed(2),
+                    kd: (0.05 + Math.random() * 0.15).toFixed(2),
+                    mode: modes[Math.floor(Math.random() * modes.length)],
+                    alarm: alarms[Math.floor(Math.random() * alarms.length)],
+                    status: statuses[Math.floor(Math.random() * statuses.length)]
+                });
+            }
+            data.sort(function(a, b) {
+                return new Date(a.timestamp) - new Date(b.timestamp);
+            });
+            return data;
+        }
 
         // =============================================================
-        // 8. FILTER & SEARCH
+        // 8. LOAD DATA
+        // =============================================================
+        function loadData() {
+            // Jika sudah ada data dari MQTT, jangan timpa
+            if (state.dataReceived && state.allData.length > 0) {
+                filterData();
+                var ls = document.getElementById('loading-screen');
+                if (ls) ls.classList.add('hide');
+                return;
+            }
+
+            // Jika belum ada data, gunakan mock
+            var mock = generateMockData(80);
+            state.allData = mock;
+            state.lastSync = new Date();
+            filterData();
+            var ls = document.getElementById('loading-screen');
+            if (ls) ls.classList.add('hide');
+            showToast('Data simulasi dimuat: ' + mock.length + ' records', 'info');
+        }
+
+        // =============================================================
+        // 9. FILTER & SEARCH
         // =============================================================
         function filterData() {
             var data = state.allData.slice();
@@ -1215,7 +1376,7 @@
         }
 
         // =============================================================
-        // 9. STATISTICS
+        // 10. STATISTICS
         // =============================================================
         function updateStats() {
             var data = state.filteredData;
@@ -1249,7 +1410,7 @@
         }
 
         // =============================================================
-        // 10. RENDER TABLE
+        // 11. RENDER TABLE
         // =============================================================
         function renderTable() {
             var tbody = document.getElementById('tableBody');
@@ -1294,7 +1455,7 @@
         }
 
         // =============================================================
-        // 11. PAGINATION
+        // 12. PAGINATION
         // =============================================================
         function renderPagination() {
             var container = document.getElementById('paginationControls');
@@ -1350,7 +1511,7 @@
         }
 
         // =============================================================
-        // 12. EXPORT FUNCTIONS
+        // 13. EXPORT FUNCTIONS
         // =============================================================
         function exportCSV() {
             var data = state.filteredData;
@@ -1424,7 +1585,20 @@
         }
 
         // =============================================================
-        // 13. EVENT LISTENERS
+        // 14. STATUS INDICATORS
+        // =============================================================
+        function updateStatusIndicators() {
+            var setDot = function(id, online) {
+                var el = document.getElementById(id);
+                if (el) el.className = 'dot ' + (online ? 'online' : 'offline');
+            };
+            setDot('wifiDot', state.wifiConnected);
+            setDot('mqttDot', state.mqttConnected);
+            setDot('sheetDot', state.sheetConnected);
+        }
+
+        // =============================================================
+        // 15. EVENT LISTENERS
         // =============================================================
         document.querySelectorAll('.filter-range').forEach(function(btn) {
             btn.addEventListener('click', function() {
@@ -1449,19 +1623,73 @@
         document.getElementById('exportPdfBtn').addEventListener('click', exportPDF);
 
         // =============================================================
-        // 14. INIT
+        // 16. SINKRONISASI DARI SyncModule
+        // =============================================================
+        if (typeof SyncModule !== 'undefined') {
+            SyncModule.setOnStateChange(function(syncState) {
+                if (syncState.currentTemp !== undefined) state.currentTemp = syncState.currentTemp;
+                if (syncState.currentHum !== undefined) state.currentHum = syncState.currentHum;
+                if (syncState.currentNh3 !== undefined) state.currentNh3 = syncState.currentNh3;
+                if (syncState.currentMode !== undefined) state.currentMode = syncState.currentMode;
+                if (syncState.currentKp !== undefined) state.currentKp = syncState.currentKp;
+                if (syncState.currentKi !== undefined) state.currentKi = syncState.currentKi;
+                if (syncState.currentKd !== undefined) state.currentKd = syncState.currentKd;
+                // Tambahkan data baru
+                var newRow = {
+                    timestamp: new Date().toISOString(),
+                    temperature: state.currentTemp,
+                    humidity: state.currentHum,
+                    nh3: state.currentNh3,
+                    peltierPwm: syncState.currentPeltierPwm || 0,
+                    fanPwm: syncState.currentFanPwm || 0,
+                    coolFanPwm: syncState.currentCoolFanPwm || 0,
+                    kp: state.currentKp,
+                    ki: state.currentKi,
+                    kd: state.currentKd,
+                    mode: state.currentMode,
+                    alarm: 'Normal',
+                    status: 'Normal',
+                };
+                state.allData.push(newRow);
+                if (state.allData.length > CONFIG.MAX_RECORDS) state.allData.shift();
+                state.lastSync = new Date();
+                filterData();
+            });
+        }
+
+        // =============================================================
+        // 17. INIT
         // =============================================================
         function init() {
-            if (initialized) return;
-            initialized = true;
+            if (state.initialized) return;
+            state.initialized = true;
+
+            connectMQTT();
             loadData();
+
+            // Auto refresh setiap 30 detik
             setInterval(function() {
-                loadData();
+                // Jika sudah ada data dari MQTT, refresh hanya jika perlu
+                if (state.dataReceived) {
+                    // Data sudah diupdate via MQTT
+                } else {
+                    loadData();
+                }
             }, 30000);
+
+            // MQTT reconnect check
+            setInterval(function() {
+                if (!state.mqttConnected && mqttClient) {
+                    try { mqttClient.reconnect(); } catch (e) {}
+                }
+                updateStatusIndicators();
+            }, 10000);
+
+            // Pastikan loading screen hilang
             setTimeout(function() {
-                var loadingScreen = document.getElementById('loading-screen');
-                if (loadingScreen) loadingScreen.classList.add('hide');
-            }, 800);
+                var ls = document.getElementById('loading-screen');
+                if (ls) ls.classList.add('hide');
+            }, 1500);
         }
 
         if (document.readyState === 'loading') {
@@ -1470,6 +1698,8 @@
             init();
         }
 
+        // Ekspos untuk debug
+        window.__state = state;
         console.log('📈 Data Logger Page Loaded');
     </script>
 

@@ -11,9 +11,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
     </script>
-    <script src="assets/js/mqtt-config.js">
+    <script src="assets/js/sync.js">
     </script>
-    <script src="assets/js/sync.js"></script>
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -416,7 +415,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            transition: opacity 0.8s, visibility 0.8s;
+            transition: opacity 0.4s, visibility 0.4s;
         }
         #loading-screen.hide {
             opacity: 0;
@@ -923,13 +922,14 @@
         // =============================================================
         // 1. CONFIGURATION
         // =============================================================
-        const CONFIG = {
+        var CONFIG = {
             MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
             MQTT_TOPICS: {
                 SELF_MONITOR: 'system/selfmonitor',
                 SYSTEM_ALARM: 'system/alarm',
                 SENSOR_STATUS: 'sensor/status',
-                SYSTEM_STATE: 'system/state'   // Untuk sinkronisasi state antar dashboard
+                SYSTEM_STATE: 'system/state',
+                SYSTEM_CONTROL: 'system/control',
             },
             INTERVAL_CHECK: 10000,
         };
@@ -937,7 +937,7 @@
         // =============================================================
         // 2. STATE
         // =============================================================
-        const state = {
+        var state = {
             health: 97,
             lastUpdate: null,
             components: {
@@ -961,24 +961,9 @@
             mqttConnected: false,
             wifiConnected: true,
             sheetConnected: true,
-            dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
+            dataReceived: false,
+            _initialized: false,
         };
-
-        mqttManager.on(MQTT_CONFIG.TOPICS.SELF_MONITOR, function(data) {
-            if (data.components) {
-                for (var key in data.components) {
-                    if (state.components[key]) {
-                        state.components[key].status = data.components[key].status || 'online';
-                        state.components[key].lastSeen = new Date();
-                    }
-                }
-                updateComponentsUI();
-            }
-            if (data.health !== undefined) {
-                state.health = data.health;
-                updateSummaryUI();
-            }
-        });
 
         // =============================================================
         // 3. UTILITY
@@ -991,23 +976,36 @@
 
         function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
+        function safeNumber(value, fallback) {
+            fallback = fallback || 0;
+            var num = Number(value);
+            return Number.isFinite(num) ? num : fallback;
+        }
+
         // =============================================================
         // 4. TOAST
         // =============================================================
-        function showToast(message, type = 'info', duration = 4000) {
-            const container = document.getElementById('toastContainer');
-            const icons = { success: 'fa-check-circle', error: 'fa-exclamation-circle', warning: 'fa-triangle-exclamation',
-                info: 'fa-circle-info' };
-            const colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
-            const el = document.createElement('div');
+        function showToast(message, type, duration) {
+            type = type || 'info';
+            duration = duration || 4000;
+            var container = document.getElementById('toastContainer');
+            var icons = {
+                success: 'fa-check-circle',
+                error: 'fa-exclamation-circle',
+                warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info'
+            };
+            var colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
+            var el = document.createElement('div');
             el.className = 'toast';
-            el.innerHTML = `
-            <span class="icon ${colors[type]}"><i class="fas ${icons[type] || icons.info}"></i></span>
-            <span>${message}</span>
-          `;
+            el.innerHTML =
+                '<span class="icon ' + colors[type] + '"><i class="fas ' + (icons[type] || icons.info) + '"></i></span><span>' +
+                message + '</span>';
             container.appendChild(el);
-            setTimeout(() => { el.classList.add('hide');
-                setTimeout(() => el.remove(), 400); }, duration);
+            setTimeout(function() {
+                el.classList.add('hide');
+                setTimeout(function() { el.remove(); }, 400);
+            }, duration);
         }
 
         // =============================================================
@@ -1019,8 +1017,9 @@
         setInterval(updateClock, 1000);
         updateClock();
 
-        const menuToggle = document.getElementById('menuToggle');
-        const sidebar = document.getElementById('sidebar');
+        var menuToggle = document.getElementById('menuToggle');
+        var sidebar = document.getElementById('sidebar');
+
         function setSidebarOpen(open) {
             if (window.innerWidth <= 1024) {
                 sidebar.classList.toggle('open', open);
@@ -1033,6 +1032,7 @@
             e.stopPropagation();
             setSidebarOpen(!sidebar.classList.contains('open'));
         });
+
         document.addEventListener('click', function(e) {
             if (window.innerWidth <= 1024) {
                 if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
@@ -1040,6 +1040,7 @@
                 }
             }
         });
+
         window.addEventListener('resize', function() {
             if (window.innerWidth > 1024) {
                 setSidebarOpen(false);
@@ -1049,7 +1050,7 @@
         // =============================================================
         // 6. MQTT
         // =============================================================
-        let mqttClient = null;
+        var mqttClient = null;
 
         function connectMQTT() {
             try {
@@ -1058,35 +1059,39 @@
                     clean: true,
                     reconnectPeriod: 3000,
                 });
-                mqttClient.on('connect', () => {
+                mqttClient.on('connect', function() {
                     state.mqttConnected = true;
                     updateStatusIndicators();
                     showToast('MQTT Terhubung', 'success');
-                    addLog('MQTT Connected - Menunggu data dari ESP32');
-                    // Subscribe ke semua topik yang diperlukan
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
-                    // Kirim status dashboard online
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_STATE);
+                    // Subscribe ke sync state
+                    if (typeof SyncModule !== 'undefined') {
+                        SyncModule.subscribeState(mqttClient);
+                    }
                     mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
                         command: 'dashboard_online',
                         timestamp: new Date().toISOString()
                     }));
+                    // Minta status self-monitor dari ESP
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.SELF_MONITOR, JSON.stringify({
+                        request: 'status'
+                    }));
                 });
-                mqttClient.on('message', (topic, payload) => {
+                mqttClient.on('message', function(topic, payload) {
                     try {
-                        const data = JSON.parse(payload.toString());
+                        var data = JSON.parse(payload.toString());
                         handleMqttMessage(topic, data);
                     } catch (e) { /* ignore */ }
                 });
-                mqttClient.on('close', () => {
+                mqttClient.on('close', function() {
                     state.mqttConnected = false;
                     updateStatusIndicators();
+                    showToast('MQTT Terputus', 'error');
                 });
-                mqttClient.on('error', () => {
+                mqttClient.on('error', function() {
                     state.mqttConnected = false;
                     updateStatusIndicators();
                 });
@@ -1096,24 +1101,47 @@
             }
         }
 
+        function publishSelfMonitorStatus() {
+            if (!mqttClient || !mqttClient.connected) return;
+            var data = {
+                health: state.health,
+                components: state.components,
+                timestamp: new Date().toISOString()
+            };
+            mqttClient.publish(CONFIG.MQTT_TOPICS.SELF_MONITOR, JSON.stringify(data));
+        }
+
         function handleMqttMessage(topic, data) {
-            const now = new Date();
+            var updated = false;
+            var now = new Date();
+
             if (topic === CONFIG.MQTT_TOPICS.SELF_MONITOR) {
-                if (data.health !== undefined) state.health = data.health;
+                if (data.health !== undefined) {
+                    state.health = data.health;
+                    updated = true;
+                }
                 if (data.components) {
-                    for (const [key, val] of Object.entries(data.components)) {
+                    for (var key in data.components) {
                         if (state.components[key]) {
-                            state.components[key].status = val.status || 'online';
+                            state.components[key].status = data.components[key].status || 'online';
                             state.components[key].lastSeen = now;
+                            updated = true;
                         }
                     }
                 }
                 state.lastUpdate = now;
-                updateAllUI();
+                updated = true;
             }
+
             if (topic === CONFIG.MQTT_TOPICS.SYSTEM_ALARM) {
                 if (data.alarm) {
-                    const existing = state.alarms.find(a => a.message === data.alarm);
+                    var existing = null;
+                    for (var i = 0; i < state.alarms.length; i++) {
+                        if (state.alarms[i].message === data.alarm) {
+                            existing = state.alarms[i];
+                            break;
+                        }
+                    }
                     if (existing) {
                         existing.active = data.active !== false;
                         existing.timestamp = now;
@@ -1121,93 +1149,137 @@
                         state.alarms.unshift({ message: data.alarm, active: data.active !== false, timestamp: now });
                         if (state.alarms.length > 50) state.alarms.pop();
                     }
-                    updateAlarmsUI();
+                    updated = true;
                 }
             }
+
             if (topic === CONFIG.MQTT_TOPICS.SENSOR_STATUS) {
-                // Update component status based on sensor status
                 if (data.sht31_ok !== undefined) {
                     state.components.sht31.status = data.sht31_ok ? 'online' : 'offline';
                     state.components.sht31.lastSeen = now;
+                    updated = true;
                 }
                 if (data.mq135_ok !== undefined) {
                     state.components.mq135.status = data.mq135_ok ? 'online' : 'offline';
                     state.components.mq135.lastSeen = now;
+                    updated = true;
                 }
-                updateComponentsUI();
+                if (data.esp32_ok !== undefined) {
+                    state.components.esp32.status = data.esp32_ok ? 'online' : 'offline';
+                    state.components.esp32.lastSeen = now;
+                    updated = true;
+                }
+                if (data.wifi_ok !== undefined) {
+                    state.components.wifi.status = data.wifi_ok ? 'online' : 'offline';
+                    state.components.wifi.lastSeen = now;
+                    updated = true;
+                }
             }
 
-            if (needUpdate) {
-                // Tandai bahwa kita sudah menerima data
+            // Sinkronisasi dari SYSTEM_STATE
+            if (topic === CONFIG.MQTT_TOPICS.SYSTEM_STATE) {
+                if (typeof SyncModule !== 'undefined') {
+                    SyncModule.handleStateMessage(topic, JSON.stringify(data));
+                }
+                if (data.health !== undefined) {
+                    state.health = data.health;
+                    updated = true;
+                }
+                if (data.components) {
+                    for (var compKey in data.components) {
+                        if (state.components[compKey]) {
+                            state.components[compKey].status = data.components[compKey].status || 'online';
+                            state.components[compKey].lastSeen = now;
+                            updated = true;
+                        }
+                    }
+                }
+                if (data.alarms) {
+                    state.alarms = data.alarms;
+                    updated = true;
+                }
+                if (data.errors) {
+                    state.errors = data.errors;
+                    updated = true;
+                }
+            }
+
+            if (updated) {
                 state.dataReceived = true;
-                updateSensorDisplay();
-                updateActuatorDisplay();
-                updateGauges();
-                updateHealthDisplay();
-                updateStatusIndicators();
-                updateChartData();
+                state.lastUpdate = now;
+                updateAllUI();
+                var ls = document.getElementById('loading-screen');
+                if (ls) ls.classList.add('hide');
             }
-        }
-
-        // Saat ada alarm baru
-        function addAlarm(message) {
-            // ... tambahkan ke state.alarms
-            SyncModule.updateLocalState({ alarms: state.alarms }, mqttManager);
         }
 
         // =============================================================
         // 7. SIMULASI DATA (jika MQTT tidak tersedia)
         // =============================================================
-        let simInterval = null;
+        var simInterval = null;
 
-        // function startSimulation() {
-        //     if (simInterval) return;
-        //     simInterval = setInterval(() => {
-        //         // Simulasi perubahan health secara natural
-        //         state.health += randomBetween(-0.5, 0.5);
-        //         state.health = Math.min(Math.max(state.health, 70), 100);
+        function startSimulation() {
+            if (simInterval) return;
+            simInterval = setInterval(function() {
+                if (state.dataReceived) {
+                    if (simInterval) { clearInterval(simInterval);
+                        simInterval = null; }
+                    return;
+                }
 
-        //         // Simulasi komponen kadang offline (5% chance)
-        //         const compKeys = Object.keys(state.components);
-        //         const randomComp = compKeys[Math.floor(Math.random() * compKeys.length)];
-        //         if (Math.random() < 0.03) {
-        //             state.components[randomComp].status = 'offline';
-        //             addError(`${state.components[randomComp].label} terdeteksi offline`, 'error');
-        //         } else if (Math.random() < 0.05) {
-        //             state.components[randomComp].status = 'online';
-        //             state.components[randomComp].lastSeen = new Date();
-        //         }
+                // Simulasi health fluktuasi
+                state.health += randomBetween(-0.5, 0.5);
+                state.health = Math.min(Math.max(state.health, 70), 100);
 
-        //         // Simulasi alarm random
-        //         if (Math.random() < 0.02) {
-        //             const msgs = ['Suhu tinggi terdeteksi', 'Kelembaban rendah', 'MQTT timeout', 'I²C error'];
-        //             const msg = msgs[Math.floor(Math.random() * msgs.length)];
-        //             const existing = state.alarms.find(a => a.message === msg);
-        //             if (!existing || !existing.active) {
-        //                 state.alarms.unshift({ message: msg, active: true, timestamp: new Date() });
-        //                 if (state.alarms.length > 50) state.alarms.pop();
-        //                 addError(`Alarm: ${msg}`, 'warning');
-        //                 showToast(`🔔 ${msg}`, 'warning');
-        //             }
-        //         }
+                // Simulasi komponen offline (3% chance)
+                var compKeys = Object.keys(state.components);
+                var randomComp = compKeys[Math.floor(Math.random() * compKeys.length)];
+                if (Math.random() < 0.03) {
+                    state.components[randomComp].status = 'offline';
+                    addError(state.components[randomComp].label + ' terdeteksi offline', 'error');
+                } else if (Math.random() < 0.05) {
+                    state.components[randomComp].status = 'online';
+                    state.components[randomComp].lastSeen = new Date();
+                }
 
-        //         // Clear old alarms occasionally
-        //         if (Math.random() < 0.01) {
-        //             state.alarms.forEach(a => { if (Math.random() < 0.3) a.active = false; });
-        //         }
+                // Simulasi alarm random
+                if (Math.random() < 0.02) {
+                    var msgs = ['Suhu tinggi terdeteksi', 'Kelembaban rendah', 'MQTT timeout', 'I²C error'];
+                    var msg = msgs[Math.floor(Math.random() * msgs.length)];
+                    var exists = false;
+                    for (var i = 0; i < state.alarms.length; i++) {
+                        if (state.alarms[i].message === msg && state.alarms[i].active) {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists) {
+                        state.alarms.unshift({ message: msg, active: true, timestamp: new Date() });
+                        if (state.alarms.length > 50) state.alarms.pop();
+                        addError('Alarm: ' + msg, 'warning');
+                        showToast('🔔 ' + msg, 'warning');
+                    }
+                }
 
-        //         state.lastUpdate = new Date();
-        //         updateAllUI();
-        //     }, CONFIG.INTERVAL_CHECK);
-        // }
+                // Clear old alarms occasionally
+                if (Math.random() < 0.01) {
+                    for (var j = 0; j < state.alarms.length; j++) {
+                        if (Math.random() < 0.3) state.alarms[j].active = false;
+                    }
+                }
+
+                state.lastUpdate = new Date();
+                updateAllUI();
+            }, CONFIG.INTERVAL_CHECK);
+        }
 
         // =============================================================
         // 8. UI UPDATE FUNCTIONS
         // =============================================================
         function updateStatusIndicators() {
-            const setDot = (id, online) => {
-                const el = document.getElementById(id);
-                if (el) el.className = `dot ${online ? 'online' : 'offline'}`;
+            var setDot = function(id, online) {
+                var el = document.getElementById(id);
+                if (el) el.className = 'dot ' + (online ? 'online' : 'offline');
             };
             setDot('wifiDot', state.wifiConnected);
             setDot('mqttDot', state.mqttConnected);
@@ -1215,81 +1287,92 @@
         }
 
         function updateComponentsUI() {
-            const grid = document.getElementById('componentStatusGrid');
-            const items = Object.entries(state.components);
-            grid.innerHTML = items.map(([key, comp]) => {
-                const statusMap = {
+            var grid = document.getElementById('componentStatusGrid');
+            var items = Object.entries(state.components);
+            var html = '';
+            for (var i = 0; i < items.length; i++) {
+                var key = items[i][0];
+                var comp = items[i][1];
+                var statusMap = {
                     online: { dot: 'green', text: 'Online', color: 'text-green-400' },
                     offline: { dot: 'red', text: 'Offline', color: 'text-red-400' },
                     warning: { dot: 'yellow', text: 'Warning', color: 'text-yellow-400' },
                 };
-                const s = statusMap[comp.status] || statusMap.online;
-                const lastSeen = comp.lastSeen ? formatTime(comp.lastSeen) : '--';
-                return `
-                <div class="health-item" style="border-left-color: ${comp.status === 'online' ? '#2a9d8f' : comp.status === 'warning' ? '#f1c40f' : '#e74c3c'};">
-                  <span class="label">${comp.label}</span>
-                  <div class="status">
-                    <span class="dot ${s.dot}"></span>
-                    <span class="${s.color}">${s.text}</span>
-                    <span class="time">${lastSeen}</span>
-                  </div>
-                </div>
-              `;
-            }).join('');
+                var s = statusMap[comp.status] || statusMap.online;
+                var lastSeen = comp.lastSeen ? formatTime(comp.lastSeen) : '--';
+                var borderColor = comp.status === 'online' ? '#2a9d8f' : comp.status === 'warning' ? '#f1c40f' : '#e74c3c';
+                html += '<div class="health-item" style="border-left-color: ' + borderColor + ';">' +
+                    '<span class="label">' + comp.label + '</span>' +
+                    '<div class="status">' +
+                    '<span class="dot ' + s.dot + '"></span>' +
+                    '<span class="' + s.color + '">' + s.text + '</span>' +
+                    '<span class="time">' + lastSeen + '</span>' +
+                    '</div>' +
+                    '</div>';
+            }
+            grid.innerHTML = html;
         }
 
         function updateAlarmsUI() {
-            const active = state.alarms.filter(a => a.active);
-            const container = document.getElementById('alarmActiveList');
-            const count = document.getElementById('alarmActiveCount');
+            var active = state.alarms.filter(function(a) { return a.active; });
+            var container = document.getElementById('alarmActiveList');
+            var count = document.getElementById('alarmActiveCount');
             count.textContent = active.length;
             if (!active.length) {
-                container.innerHTML = `<div class="text-center text-gray-500 text-sm py-4">Tidak ada alarm aktif</div>`;
+                container.innerHTML = '<div class="text-center text-gray-500 text-sm py-4">Tidak ada alarm aktif</div>';
                 return;
             }
-            container.innerHTML = active.slice(0, 10).map(a => `
-              <div class="health-item" style="border-left-color: #e74c3c; background: rgba(231,76,60,0.05);">
-                <span class="label"><i class="fas fa-exclamation-circle text-red-400 mr-2"></i>${a.message}</span>
-                <span class="status">
-                  <span class="text-red-400 text-xs">AKTIF</span>
-                  <span class="time">${formatTime(a.timestamp)}</span>
-                </span>
-              </div>
-            `).join('');
+            var html = '';
+            for (var i = 0; i < Math.min(active.length, 10); i++) {
+                var a = active[i];
+                html += '<div class="health-item" style="border-left-color: #e74c3c; background: rgba(231,76,60,0.05);">' +
+                    '<span class="label"><i class="fas fa-exclamation-circle text-red-400 mr-2"></i>' + a.message +
+                    '</span>' +
+                    '<span class="status">' +
+                    '<span class="text-red-400 text-xs">AKTIF</span>' +
+                    '<span class="time">' + formatTime(a.timestamp) + '</span>' +
+                    '</span>' +
+                    '</div>';
+            }
+            container.innerHTML = html;
         }
 
         function updateErrorLogUI() {
-            const container = document.getElementById('errorLogList');
-            const count = document.getElementById('errorLogCount');
+            var container = document.getElementById('errorLogList');
+            var count = document.getElementById('errorLogCount');
             count.textContent = state.errors.length;
             if (!state.errors.length) {
-                container.innerHTML = `<div class="text-center text-gray-500 text-sm py-4">Tidak ada error</div>`;
+                container.innerHTML = '<div class="text-center text-gray-500 text-sm py-4">Tidak ada error</div>';
                 return;
             }
-            container.innerHTML = state.errors.slice(0, 20).map(e => `
-              <div class="error-log-item ${e.type}">
-                <span>${e.message}</span>
-                <span class="time">${e.time}</span>
-              </div>
-            `).join('');
+            var html = '';
+            for (var i = 0; i < Math.min(state.errors.length, 20); i++) {
+                var e = state.errors[i];
+                html += '<div class="error-log-item ' + e.type + '">' +
+                    '<span>' + e.message + '</span>' +
+                    '<span class="time">' + e.time + '</span>' +
+                    '</div>';
+            }
+            container.innerHTML = html;
         }
 
         function updateSummaryUI() {
-            const health = Math.round(safeNumber(state.health, 100));
-            const healthScore = document.getElementById('healthScore');
+            var health = Math.round(safeNumber(state.health, 100));
+            var healthScore = document.getElementById('healthScore');
             if (healthScore) {
                 healthScore.textContent = health + '%';
-                healthScore.className = `text-3xl font-bold ${health >= 80 ? 'text-green-400' : health >= 60 ? 'text-yellow-400' : 'text-red-400'}`;
+                healthScore.className = 'text-3xl font-bold ' + (health >= 80 ? 'text-green-400' : health >= 60 ?
+                    'text-yellow-400' : 'text-red-400');
             }
-            const healthLastUpdate = document.getElementById('healthLastUpdate');
+            var healthLastUpdate = document.getElementById('healthLastUpdate');
             if (healthLastUpdate) healthLastUpdate.textContent = state.lastUpdate ? formatTime(state.lastUpdate) : '--';
 
-            const activeAlarms = state.alarms.filter(a => a.active).length;
-            const activeAlarmCount = document.getElementById('activeAlarmCount');
+            var activeAlarms = state.alarms.filter(function(a) { return a.active; }).length;
+            var activeAlarmCount = document.getElementById('activeAlarmCount');
             if (activeAlarmCount) activeAlarmCount.textContent = activeAlarms;
-            const totalErrorCount = document.getElementById('totalErrorCount');
+            var totalErrorCount = document.getElementById('totalErrorCount');
             if (totalErrorCount) totalErrorCount.textContent = state.errors.length;
-            const lastCheckTime = document.getElementById('lastCheckTime');
+            var lastCheckTime = document.getElementById('lastCheckTime');
             if (lastCheckTime) lastCheckTime.textContent = state.lastUpdate ? formatTime(state.lastUpdate) : '--';
         }
 
@@ -1304,10 +1387,16 @@
         // =============================================================
         // 9. ADD ERROR
         // =============================================================
-        function addError(message, type = 'error') {
-            state.errors.unshift({ message, type, time: formatTime() });
+        function addError(message, type) {
+            type = type || 'error';
+            state.errors.unshift({ message: message, type: type, time: formatTime() });
             if (state.errors.length > 100) state.errors.pop();
             updateErrorLogUI();
+            // Sinkronisasi
+            if (typeof SyncModule !== 'undefined' && mqttClient) {
+                SyncModule.updateLocalState({ errors: state.errors, alarms: state.alarms, health: state.health },
+                    mqttClient);
+            }
         }
 
         // =============================================================
@@ -1315,37 +1404,30 @@
         // =============================================================
         function runSelfTest() {
             showToast('🔄 Menjalankan self monitoring test...', 'info');
-            let passed = 0;
-            let failed = 0;
+            var passed = 0;
+            var failed = 0;
 
-            // Periksa setiap komponen
-            for (const [key, comp] of Object.entries(state.components)) {
-                if (comp.status === 'online') passed++;
+            for (var key in state.components) {
+                if (state.components[key].status === 'online') passed++;
                 else failed++;
             }
 
-            // Tambahkan log
-            addError(`Self test selesai: ${passed} komponen OK, ${failed} komponen bermasalah`, 'info');
+            addError('Self test selesai: ' + passed + ' komponen OK, ' + failed + ' komponen bermasalah', 'info');
 
             if (failed === 0) {
                 showToast('✅ Self test: Semua komponen normal!', 'success');
             } else {
-                showToast(`⚠️ Self test: ${failed} komponen bermasalah`, 'warning');
+                showToast('⚠️ Self test: ' + failed + ' komponen bermasalah', 'warning');
             }
 
-            // Update health berdasarkan hasil
-            const healthPct = Math.round((passed / Object.keys(state.components).length) * 100);
+            var healthPct = Math.round((passed / Object.keys(state.components).length) * 100);
             state.health = Math.min(healthPct + 5, 100);
             updateSummaryUI();
+            publishSelfMonitorStatus();
 
-            // Publish test result via MQTT
-            if (state.mqttConnected && mqttClient) {
-                mqttClient.publish(CONFIG.MQTT_TOPICS.SELF_MONITOR, JSON.stringify({
-                    test: 'self_test',
-                    passed: passed,
-                    failed: failed,
-                    timestamp: new Date().toISOString(),
-                }));
+            // Sinkronisasi
+            if (typeof SyncModule !== 'undefined' && mqttClient) {
+                SyncModule.updateLocalState({ health: state.health, components: state.components }, mqttClient);
             }
         }
 
@@ -1355,7 +1437,7 @@
         document.getElementById('testSelfMonitorBtn').addEventListener('click', runSelfTest);
 
         document.getElementById('simulateErrorBtn').addEventListener('click', function() {
-            const errors = [
+            var errors = [
                 'Sensor SHT31 timeout',
                 'ADC MQ135 nilai di luar batas',
                 'Peltier current sense abnormal',
@@ -1363,15 +1445,19 @@
                 'WiFi connection lost',
                 'MQTT broker unreachable',
             ];
-            const msg = errors[Math.floor(Math.random() * errors.length)];
+            var msg = errors[Math.floor(Math.random() * errors.length)];
             addError(msg, 'error');
             state.alarms.unshift({ message: msg, active: true, timestamp: new Date() });
             if (state.alarms.length > 50) state.alarms.pop();
             updateAlarmsUI();
-            showToast(`⚠️ Simulasi error: ${msg}`, 'error');
-            // Kurangi health sedikit
+            showToast('⚠️ Simulasi error: ' + msg, 'error');
             state.health = Math.max(state.health - randomBetween(2, 5), 70);
             updateSummaryUI();
+            // Sinkronisasi
+            if (typeof SyncModule !== 'undefined' && mqttClient) {
+                SyncModule.updateLocalState({ alarms: state.alarms, errors: state.errors, health: state.health },
+                    mqttClient);
+            }
         });
 
         document.getElementById('clearLogsBtn').addEventListener('click', function() {
@@ -1380,6 +1466,10 @@
             updateErrorLogUI();
             updateAlarmsUI();
             showToast('Log dan alarm berhasil dihapus', 'success');
+            // Sinkronisasi
+            if (typeof SyncModule !== 'undefined' && mqttClient) {
+                SyncModule.updateLocalState({ alarms: state.alarms, errors: state.errors }, mqttClient);
+            }
         });
 
         document.getElementById('refreshStatusBtn').addEventListener('click', function() {
@@ -1387,36 +1477,71 @@
         });
 
         // =============================================================
-        // 12. INIT
+        // 12. SINKRONISASI DARI SyncModule
+        // =============================================================
+        if (typeof SyncModule !== 'undefined') {
+            SyncModule.setOnStateChange(function(syncState) {
+                if (syncState.health !== undefined) state.health = syncState.health;
+                if (syncState.components) {
+                    for (var key in syncState.components) {
+                        if (state.components[key]) {
+                            state.components[key].status = syncState.components[key].status || 'online';
+                            state.components[key].lastSeen = new Date();
+                        }
+                    }
+                }
+                if (syncState.alarms) state.alarms = syncState.alarms;
+                if (syncState.errors) state.errors = syncState.errors;
+                updateAllUI();
+            });
+        }
+
+        // =============================================================
+        // 13. INIT
         // =============================================================
         function init() {
-            if (initialized) return;
-            initialized = true;
-            const now = new Date();
+            if (state._initialized) return;
+            state._initialized = true;
+
+            var now = new Date();
             state.lastUpdate = now;
-            for (const key of Object.keys(state.components)) {
+            for (var key in state.components) {
                 state.components[key].lastSeen = now;
             }
             state.health = 97;
 
             updateAllUI();
             connectMQTT();
+            startSimulation();
 
-            setInterval(() => {
+            setInterval(function() {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
                 }
                 updateStatusIndicators();
+                if (state.dataReceived && simInterval) {
+                    clearInterval(simInterval);
+                    simInterval = null;
+                }
             }, 10000);
 
-            setTimeout(() => {
-                const loadingScreen = document.getElementById('loading-screen');
-                if (loadingScreen) loadingScreen.classList.add('hide');
-            }, 600);
-            setTimeout(() => {
+            setInterval(function() {
+                if (state.mqttConnected && mqttClient) {
+                    publishSelfMonitorStatus();
+                }
+            }, 15000);
+
+            setTimeout(function() {
+                var ls = document.getElementById('loading-screen');
+                if (ls) ls.classList.add('hide');
+            }, 800);
+
+            setTimeout(function() {
                 showToast('Self Monitoring siap', 'success');
                 setTimeout(runSelfTest, 1500);
             }, 1000);
+
+            console.log('🩺 Self Monitoring Page Loaded');
         }
 
         if (document.readyState === 'loading') {
@@ -1428,7 +1553,6 @@
         // Ekspos untuk debug
         window.__state = state;
         window.__runSelfTest = runSelfTest;
-        console.log('🩺 Self Monitoring Page Loaded');
     </script>
 
 </body>

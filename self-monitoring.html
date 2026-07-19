@@ -13,6 +13,7 @@
     </script>
     <script src="assets/js/mqtt-config.js">
     </script>
+    <script src="assets/js/sync.js"></script>
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -1129,7 +1130,7 @@
         // Saat ada alarm baru
         function addAlarm(message) {
             // ... tambahkan ke state.alarms
-            SyncModule.updateLocalState({ alarms: state.alarms }, mqttClient);
+            SyncModule.updateLocalState({ alarms: state.alarms }, mqttManager);
         }
 
         // =============================================================

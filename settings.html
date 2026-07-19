@@ -11,6 +11,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
     </script>
+    <script src="assets/js/mqtt-config.js"></script>
+    <script src="assets/js/sync.js"></script>
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -1283,6 +1285,7 @@
         document.getElementById('saveGeneralBtn').addEventListener('click', function() {
             const name = document.getElementById('systemName').value;
             const interval = document.getElementById('samplingInterval').value;
+            SyncModule.updateLocalState({ systemName: name, samplingInterval: interval }, mqttManager);
             showToast(`Pengaturan umum disimpan: ${name} (interval ${interval}s)`, 'success');
         });
 
@@ -1300,6 +1303,7 @@
 
         document.getElementById('saveMqttBtn').addEventListener('click', function() {
             const broker = document.getElementById('mqttBroker').value;
+            SyncModule.updateLocalState({ mqttBroker: broker }, mqttManager);
             showToast(`Konfigurasi MQTT disimpan: ${broker}`, 'success');
         });
 

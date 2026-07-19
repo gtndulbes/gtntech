@@ -15,6 +15,7 @@
     </script>
     <script src="assets/js/mqtt-config.js">
     </script>
+    <script src="assets/js/sync.js"></script>
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -1366,6 +1367,7 @@
             };
             if (state.mqttConnected && mqttClient) {
                 mqttClient.publish(CONFIG.MQTT_TOPICS.SETTING_UPDATE, JSON.stringify(data));
+                SyncModule.updateLocalState({ kp: state.kp, ki: state.ki, kd: state.kd, setpointTemp: state.setpointTemp, setpointHum: state.setpointHum }, mqttManager);
                 showToast(`Tuning diterapkan: Kp=${state.kp}, Ki=${state.ki}, Kd=${state.kd}`, 'success');
             } else {
                 showToast('MQTT tidak terhubung, tuning hanya di dashboard', 'warning');
@@ -1521,7 +1523,7 @@
         function updateKp(val) {
             state.kp = val;
             // Sinkronisasi
-            SyncModule.updateLocalState({ kp: val }, mqttClient);
+            SyncModule.updateLocalState({ kp: val }, mqttManager);
             // Kirim ke ESP32 jika perlu
             mqttClient.publish('setting/update', JSON.stringify({ kp: val }));
         }

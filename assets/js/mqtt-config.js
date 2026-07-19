@@ -20,6 +20,7 @@ const MQTT_CONFIG = {
         SYSTEM_ALARM: 'system/alarm',
         SELF_MONITOR: 'system/selfmonitor',
         SETTING_UPDATE: 'setting/update',
+        SYSTEM_STATE: 'system/state',
     },
     // Untuk debug
     DEBUG: true,
@@ -36,6 +37,7 @@ class MqttManager {
         this.messageHandlers = {};
         this.statusCallbacks = [];
         this.reconnectTimer = null;
+        this.pendingSubscriptions = [];
     }
 
     // Inisialisasi koneksi
@@ -55,6 +57,13 @@ class MqttManager {
                         else this.log('Subscribed to: ' + topic);
                     });
                 });
+                this.pendingSubscriptions.slice().forEach(topic => {
+                    this.client.subscribe(topic, (err) => {
+                        if (err) this.log('Subscribe error: ' + topic, err);
+                        else this.log('Subscribed to: ' + topic);
+                    });
+                });
+                this.pendingSubscriptions = [];
                 // Kirim status online
                 this.publish(this.config.TOPICS.SENSOR_STATUS, {
                     dashboard: 'online',
@@ -127,10 +136,18 @@ class MqttManager {
 
     // Subscribe tambahan
     subscribe(topic, callback) {
-        if (!this.connected) return;
+        if (!this.client) {
+            this.pendingSubscriptions.push(topic);
+            if (callback) this.on(topic, callback);
+            return;
+        }
+        if (!this.connected) {
+            this.pendingSubscriptions.push(topic);
+            if (callback) this.on(topic, callback);
+            return;
+        }
         this.client.subscribe(topic, (err) => {
             if (!err && callback) {
-                // Jika ada callback khusus untuk subscribe ini
                 this.on(topic, callback);
             }
         });
@@ -165,3 +182,7 @@ class MqttManager {
 // Inisialisasi instance global
 // ============================================================
 const mqttManager = new MqttManager(MQTT_CONFIG);
+if (typeof window !== 'undefined') {
+    window.mqttManager = mqttManager;
+    window.MQTT_CONFIG = MQTT_CONFIG;
+}

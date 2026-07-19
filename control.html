@@ -13,6 +13,7 @@
     </script>
     <script src="assets/js/mqtt-config.js">
     </script>
+    <script src="assets/js/sync.js"></script>
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -1284,13 +1285,17 @@
             if (state.mqttConnected && mqttClient) {
                 mqttClient.publish(CONFIG.MQTT_TOPICS.ACTUATOR_CONTROL, JSON.stringify(command));
             }
-            // Always update local state and UI
+            if (mqttManager && mqttManager.connected) {
+                mqttManager.publish(MQTT_CONFIG.TOPICS.ACTUATOR_CONTROL, command);
+            }
+            SyncModule.updateLocalState(Object.assign({}, state, command), mqttManager);
         }
 
         // Fungsi kirim perintah kontrol melalui MQTT
         function sendControlCommand(command) {
             if (mqttManager.connected) {
                 mqttManager.publish(MQTT_CONFIG.TOPICS.ACTUATOR_CONTROL, command);
+                SyncModule.updateLocalState(Object.assign({}, state, command), mqttManager);
                 showToast('Perintah dikirim: ' + JSON.stringify(command), 'success');
             } else {
                 showToast('MQTT tidak terhubung', 'error');
@@ -1335,7 +1340,7 @@
             // Kirim kontrol ke ESP32
             publishControl({ peltierOn: newState });
             // Sinkronisasi ke dashboard lain
-            SyncModule.updateLocalState({ peltierOn: newState }, mqttClient);
+            SyncModule.updateLocalState({ peltierOn: newState }, mqttManager);
         }
 
         function updateModeUI() {
@@ -1419,6 +1424,7 @@
             if (state.mode === 'AUTO') { showToast('Sudah dalam mode AUTO', 'info'); return; }
             state.mode = 'AUTO';
             publishControl({ mode: 'AUTO' });
+            SyncModule.updateLocalState({ mode: state.mode }, mqttManager);
             updateAllUI();
             showToast('Mode AUTO diaktifkan (Fuzzy-PID)', 'success');
         });
@@ -1427,6 +1433,7 @@
             if (state.mode === 'MANUAL') { showToast('Sudah dalam mode MANUAL', 'info'); return; }
             state.mode = 'MANUAL';
             publishControl({ mode: 'MANUAL' });
+            SyncModule.updateLocalState({ mode: state.mode }, mqttManager);
             updateAllUI();
             showToast('Mode MANUAL diaktifkan', 'success');
         });
@@ -1624,6 +1631,7 @@
                     timestamp: new Date().toISOString(),
                 };
                 mqttClient.publish(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS, JSON.stringify(status));
+                SyncModule.updateLocalState(status, mqttManager);
                 showToast('Status dipublikasikan', 'success');
             } else {
                 showToast('MQTT tidak terhubung', 'error');

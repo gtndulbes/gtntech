@@ -1656,17 +1656,37 @@
             initMQTT(); // Panggil fungsi initMQTT() untuk mengatur koneksi dan handler MQTT
             connectMQTT();
             // Subscribe ke topik sync
-            SyncModule.subscribeState(mqttClient);
+            SyncModule.subscribeState(mqttManager);
 
             // Set callback untuk perubahan state dari sync
-            SyncModule.setOnStateChange(function(state) {
-                // Update UI berdasarkan state yang diterima
+            SyncModule.setOnStateChange(function(syncState) {
+                if (syncState.mode !== undefined) state.mode = syncState.mode;
+                if (syncState.peltierOn !== undefined) state.peltierOn = syncState.peltierOn;
+                if (syncState.peltierPwm !== undefined) state.peltierPwm = syncState.peltierPwm;
+                if (syncState.fanOn !== undefined) state.fanOn = syncState.fanOn;
+                if (syncState.fanPwm !== undefined) state.fanPwm = syncState.fanPwm;
+                if (syncState.coolFanOn !== undefined) state.coolFanOn = syncState.coolFanOn;
+                if (syncState.coolFanPwm !== undefined) state.coolFanPwm = syncState.coolFanPwm;
+                if (syncState.setpointTemp !== undefined) state.setpointTemp = syncState.setpointTemp;
+                if (syncState.setpointHum !== undefined) state.setpointHum = syncState.setpointHum;
+                if (syncState.kp !== undefined) state.kp = syncState.kp;
+                if (syncState.ki !== undefined) state.ki = syncState.ki;
+                if (syncState.kd !== undefined) state.kd = syncState.kd;
+                if (syncState.error !== undefined) state.error = syncState.error;
+                if (syncState.deltaError !== undefined) state.deltaError = syncState.deltaError;
+                if (syncState.outputPid !== undefined) state.outputPid = syncState.outputPid;
+                if (syncState.temp !== undefined) state.temp = syncState.temp;
+                if (syncState.hum !== undefined) state.hum = syncState.hum;
+                if (syncState.nh3 !== undefined) state.nh3 = syncState.nh3;
+                if (syncState.health !== undefined) state.health = syncState.health;
+                if (syncState.alarms !== undefined) state.alarms = syncState.alarms;
+                if (syncState.notifications !== undefined) state.notifications = syncState.notifications;
+                if (syncState.logs !== undefined) state.logs = syncState.logs;
                 updateAllUI();
-
-            // Contoh saat mode diubah
-            state.mode = 'AUTO';
-            SyncModule.updateLocalState({ mode: 'AUTO' }, mqttClient);
             });
+
+            // Sinkronisasi awal
+            SyncModule.updateLocalState({ mode: 'AUTO' }, mqttManager);
             // ...
         }
 
@@ -1874,7 +1894,7 @@
             // Update UI lokal
             updateModeUI();
             // Sinkronisasi ke user lain
-            SyncModule.updateLocalState({ mode: newMode }, mqttClient);
+            SyncModule.updateLocalState({ mode: newMode }, mqttManager);
             // Kirim ke ESP32
             publishControl({ mode: newMode });
         }

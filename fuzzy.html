@@ -13,9 +13,8 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
     </script>
-    <script src="assets/js/mqtt-config.js">
+    <script src="assets/js/sync.js">
     </script>
-    <script src="assets/js/sync.js"></script>
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -498,6 +497,29 @@
             }
         }
 
+        /* ===== BUTTON ===== */
+        .btn {
+            padding: 8px 16px;
+            border-radius: 10px;
+            border: none;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.25s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-primary {
+            background: #2a9d8f;
+            color: #fff;
+        }
+        .btn-primary:hover {
+            background: #21867a;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(42, 157, 143, 0.3);
+        }
+
         /* ===== RESPONSIVE ===== */
         @media (max-width: 1024px) {
             .sidebar {
@@ -754,6 +776,39 @@
         .fade-in-up {
             animation: fadeInUp 0.5s ease forwards;
         }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 5px;
+            border-radius: 10px;
+            background: #2a2f3a;
+            outline: none;
+            transition: 0.2s;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #2a9d8f;
+            cursor: pointer;
+            box-shadow: 0 0 12px rgba(42, 157, 143, 0.3);
+            transition: 0.2s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #2a9d8f;
+            cursor: pointer;
+            border: none;
+        }
     </style>
 </head>
 <body>
@@ -923,9 +978,9 @@
                     <div class="text-xs text-gray-400 mb-1">Δ Error (de/dt)</div>
                     <div class="mf-container" id="mfDelta">
                         <span class="mf-item">NB</span>
-                        <span class="mf-item active">NS</span>
-                        <span class="mf-item">Z</span>
-                        <span class="mf-item active">PS</span>
+                        <span class="mf-item">NS</span>
+                        <span class="mf-item active">Z</span>
+                        <span class="mf-item">PS</span>
                         <span class="mf-item">PB</span>
                     </div>
                 </div>
@@ -987,6 +1042,8 @@
                     <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-param="kp">Kp</button>
                     <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-param="ki">Ki</button>
                     <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-param="kd">Kd</button>
+                    <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-param="output">Output</button>
+                    <button class="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 transition" data-param="error">Error</button>
                 </div>
             </div>
             <div class="chart-container">
@@ -1009,14 +1066,16 @@
         // =============================================================
         // 1. CONFIGURATION
         // =============================================================
-        const CONFIG = {
+        var CONFIG = {
             MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
             MQTT_TOPICS: {
                 FUZZY_STATUS: 'fuzzy/status',
                 SETTING_UPDATE: 'setting/update',
                 SENSOR_SHT31: 'sensor/sht31',
                 ACTUATOR_STATUS: 'actuator/status',
-                SYSTEM_STATE: 'system/state'   // Untuk sinkronisasi state antar dashboard
+                SYSTEM_STATE: 'system/state',
+                SYSTEM_CONTROL: 'system/control',
+                SENSOR_STATUS: 'sensor/status',
             },
             INTERVAL_SAMPLE: 2000,
         };
@@ -1024,7 +1083,7 @@
         // =============================================================
         // 2. STATE
         // =============================================================
-        const state = {
+        var state = {
             setpointTemp: 27.5,
             setpointHum: 75,
             error: 0,
@@ -1033,7 +1092,7 @@
             ki: 0.5,
             kd: 0.1,
             outputPid: 0,
-            temp: null,        // null berarti belum ada data
+            temp: null,
             hum: null,
             nh3: null,
             mqttConnected: false,
@@ -1048,25 +1107,14 @@
                 { condition: 'IF error PS AND delta NS THEN Kd PS', weight: 0.6, active: false },
                 { condition: 'IF error NS AND delta PS THEN Kd NS', weight: 0.6, active: false },
             ],
-            mfError: ['Z'], // active membership functions
+            mfError: ['Z'],
             mfDelta: ['Z'],
             mfOutput: ['Z'],
             chartData: { labels: [], kp: [], ki: [], kd: [], output: [], error: [] },
-            dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
+            dataReceived: false,
+            _lastError: 0,
+            _integral: 0,
         };
-
-        mqttManager.on('fuzzy/status', function(data) {
-            if (data.setpointTemp !== undefined) state.setpointTemp = data.setpointTemp;
-            if (data.setpointHum !== undefined) state.setpointHum = data.setpointHum;
-            if (data.kp !== undefined) state.kp = data.kp;
-            if (data.ki !== undefined) state.ki = data.ki;
-            if (data.kd !== undefined) state.kd = data.kd;
-            if (data.error !== undefined) state.error = data.error;
-            if (data.deltaError !== undefined) state.deltaError = data.deltaError;
-            updateFuzzyUI();
-        });
-
-        let initialized = false;
 
         // =============================================================
         // 3. UTILITY
@@ -1079,41 +1127,42 @@
 
         function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
-        function safeNumber(value, fallback = 0) {
-            const num = Number(value);
+        function safeNumber(value, fallback) {
+            fallback = fallback || 0;
+            var num = Number(value);
             return Number.isFinite(num) ? num : fallback;
         }
 
-        function formatValue(value, digits = 1) {
-            const num = safeNumber(value, Number.NaN);
+        function formatValue(value, digits) {
+            digits = digits || 1;
+            var num = safeNumber(value, Number.NaN);
             return Number.isNaN(num) ? '---' : num.toFixed(digits);
         }
 
         // =============================================================
         // 4. TOAST
         // =============================================================
-        function showToast(message, type = 'info', duration = 4000) {
-            const container = document.getElementById('toastContainer');
-            const icons = { success: 'fa-check-circle', error: 'fa-exclamation-circle', warning: 'fa-triangle-exclamation',
-                info: 'fa-circle-info' };
-            const colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
-            const el = document.createElement('div');
+        function showToast(message, type, duration) {
+            type = type || 'info';
+            duration = duration || 4000;
+            var container = document.getElementById('toastContainer');
+            var icons = {
+                success: 'fa-check-circle',
+                error: 'fa-exclamation-circle',
+                warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info'
+            };
+            var colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
+            var el = document.createElement('div');
             el.className = 'toast';
-            el.innerHTML = `
-            <span class="icon ${colors[type]}"><i class="fas ${icons[type] || icons.info}"></i></span>
-            <span>${message}</span>
-          `;
+            el.innerHTML =
+                '<span class="icon ' + colors[type] + '"><i class="fas ' + (icons[type] || icons.info) + '"></i></span><span>' +
+                message + '</span>';
             container.appendChild(el);
-            setTimeout(() => { el.classList.add('hide');
-                setTimeout(() => el.remove(), 400); }, duration);
-        }
-
-        function addLog(message) {
-            console.log(message);
-        }
-
-        function addNotification(message, type = 'info') {
-            showToast(message, type);
+            setTimeout(function() {
+                el.classList.add('hide');
+                setTimeout(function() { el.remove(); }, 400);
+            }, duration);
         }
 
         // =============================================================
@@ -1125,8 +1174,8 @@
         setInterval(updateClock, 1000);
         updateClock();
 
-        const menuToggle = document.getElementById('menuToggle');
-        const sidebar = document.getElementById('sidebar');
+        var menuToggle = document.getElementById('menuToggle');
+        var sidebar = document.getElementById('sidebar');
         menuToggle.addEventListener('click', function(e) {
             e.stopPropagation();
             sidebar.classList.toggle('open');
@@ -1145,7 +1194,7 @@
         // =============================================================
         // 6. MQTT
         // =============================================================
-        let mqttClient = null;
+        var mqttClient = null;
 
         function connectMQTT() {
             try {
@@ -1154,36 +1203,39 @@
                     clean: true,
                     reconnectPeriod: 3000,
                 });
-                mqttClient.on('connect', () => {
+                mqttClient.on('connect', function() {
                     state.mqttConnected = true;
                     updateStatusIndicators();
                     showToast('MQTT Terhubung', 'success');
-                    addLog('MQTT Connected - Menunggu data dari ESP32');
-                    // Subscribe ke semua topik yang diperlukan
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
                     mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
-                    // Kirim status dashboard online
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_STATE);
+                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.FUZZY_STATUS);
+                    // Subscribe ke sync state
+                    if (typeof SyncModule !== 'undefined') {
+                        SyncModule.subscribeState(mqttClient);
+                    }
                     mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
                         command: 'dashboard_online',
                         timestamp: new Date().toISOString()
                     }));
+                    // Minta status fuzzy dari ESP
+                    mqttClient.publish(CONFIG.MQTT_TOPICS.FUZZY_STATUS, JSON.stringify({
+                        request: 'status'
+                    }));
                 });
-                mqttClient.on('message', (topic, payload) => {
+                mqttClient.on('message', function(topic, payload) {
                     try {
-                        const data = JSON.parse(payload.toString());
+                        var data = JSON.parse(payload.toString());
                         handleMqttMessage(topic, data);
                     } catch (e) { /* ignore */ }
                 });
-                mqttClient.on('close', () => {
+                mqttClient.on('close', function() {
                     state.mqttConnected = false;
                     updateStatusIndicators();
                     showToast('MQTT Terputus', 'error');
                 });
-                mqttClient.on('error', () => {
+                mqttClient.on('error', function() {
                     state.mqttConnected = false;
                     updateStatusIndicators();
                 });
@@ -1193,32 +1245,69 @@
             }
         }
 
+        function publishFuzzyStatus() {
+            if (!mqttClient || !mqttClient.connected) return;
+            var data = {
+                setpointTemp: state.setpointTemp,
+                setpointHum: state.setpointHum,
+                error: state.error,
+                deltaError: state.deltaError,
+                kp: state.kp,
+                ki: state.ki,
+                kd: state.kd,
+                output: state.outputPid,
+                rules: state.rules,
+                mfError: state.mfError,
+                mfDelta: state.mfDelta,
+                mfOutput: state.mfOutput,
+            };
+            mqttClient.publish(CONFIG.MQTT_TOPICS.FUZZY_STATUS, JSON.stringify(data));
+        }
+
         function handleMqttMessage(topic, data) {
+            var updated = false;
+
             switch (topic) {
                 case CONFIG.MQTT_TOPICS.FUZZY_STATUS:
-                    if (data.setpointTemp !== undefined) state.setpointTemp = data.setpointTemp;
-                    if (data.setpointHum !== undefined) state.setpointHum = data.setpointHum;
-                    if (data.error !== undefined) state.error = data.error;
-                    if (data.deltaError !== undefined) state.deltaError = data.deltaError;
-                    if (data.kp !== undefined) state.kp = data.kp;
-                    if (data.ki !== undefined) state.ki = data.ki;
-                    if (data.kd !== undefined) state.kd = data.kd;
-                    if (data.output !== undefined) state.outputPid = data.output;
-                    if (data.rules !== undefined) state.rules = data.rules;
-                    if (data.mfError !== undefined) state.mfError = data.mfError;
-                    if (data.mfDelta !== undefined) state.mfDelta = data.mfDelta;
-                    if (data.mfOutput !== undefined) state.mfOutput = data.mfOutput;
-                    updateAllUI();
+                    if (data.setpointTemp !== undefined) { state.setpointTemp = data.setpointTemp;
+                        updated = true; }
+                    if (data.setpointHum !== undefined) { state.setpointHum = data.setpointHum;
+                        updated = true; }
+                    if (data.error !== undefined) { state.error = data.error;
+                        updated = true; }
+                    if (data.deltaError !== undefined) { state.deltaError = data.deltaError;
+                        updated = true; }
+                    if (data.kp !== undefined) { state.kp = data.kp;
+                        updated = true; }
+                    if (data.ki !== undefined) { state.ki = data.ki;
+                        updated = true; }
+                    if (data.kd !== undefined) { state.kd = data.kd;
+                        updated = true; }
+                    if (data.output !== undefined) { state.outputPid = data.output;
+                        updated = true; }
+                    if (data.rules !== undefined) { state.rules = data.rules;
+                        updated = true; }
+                    if (data.mfError !== undefined) { state.mfError = data.mfError;
+                        updated = true; }
+                    if (data.mfDelta !== undefined) { state.mfDelta = data.mfDelta;
+                        updated = true; }
+                    if (data.mfOutput !== undefined) { state.mfOutput = data.mfOutput;
+                        updated = true; }
                     break;
+
                 case CONFIG.MQTT_TOPICS.SENSOR_SHT31:
-                    if (data.temperature !== undefined) state.temp = data.temperature;
-                    if (data.humidity !== undefined) state.hum = data.humidity;
-                    // Recalculate error based on current temp
-                    state.error = state.setpointTemp - state.temp;
-                    updateAllUI();
+                    if (data.temperature !== undefined) {
+                        state.temp = data.temperature;
+                        state.error = state.setpointTemp - state.temp;
+                        state.deltaError = (state.error - state._lastError) / 2;
+                        state._lastError = state.error;
+                        updated = true;
+                    }
+                    if (data.humidity !== undefined) { state.hum = data.humidity;
+                        updated = true; }
                     break;
+
                 case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
-                    // Update status aktuator dari ESP
                     if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
                     if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
                     if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
@@ -1226,103 +1315,120 @@
                     if (data.fanOn !== undefined) state.fanOn = data.fanOn;
                     if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
                     if (data.mode !== undefined) state.mode = data.mode;
-                    needUpdate = true;
-                    updateAllUI();
                     break;
+
                 case CONFIG.MQTT_TOPICS.SYSTEM_STATE:
-                    SyncModule.handleStateMessage(topic, data);
-                    // Setelah menerima state, update UI
-                    updateAllUI();
+                    if (typeof SyncModule !== 'undefined') {
+                        SyncModule.handleStateMessage(topic, JSON.stringify(data));
+                    }
+                    if (data.kp !== undefined) { state.kp = data.kp;
+                        updated = true; }
+                    if (data.ki !== undefined) { state.ki = data.ki;
+                        updated = true; }
+                    if (data.kd !== undefined) { state.kd = data.kd;
+                        updated = true; }
+                    if (data.setpointTemp !== undefined) { state.setpointTemp = data.setpointTemp;
+                        updated = true; }
+                    if (data.setpointHum !== undefined) { state.setpointHum = data.setpointHum;
+                        updated = true; }
                     break;
+
                 default:
                     break;
             }
-            
-            if (needUpdate) {
-                // Tandai bahwa kita sudah menerima data
-                state.dataReceived = true;
-                updateSensorDisplay();
-                updateActuatorDisplay();
-                updateGauges();
-                updateHealthDisplay();
-                updateStatusIndicators();
-                updateChartData();
-            }
 
-            updateChartData();
+            if (updated) {
+                state.dataReceived = true;
+                updateAllUI();
+                updateChartData();
+                var ls = document.getElementById('loading-screen');
+                if (ls) ls.classList.add('hide');
+            }
         }
 
         // =============================================================
-        // 7. SIMULASI
+        // 7. SIMULASI (jika tidak ada data dari MQTT)
         // =============================================================
-        let simInterval = null;
+        var simInterval = null;
 
-        // function startSimulation() {
-        //     if (simInterval) return;
-        //     simInterval = setInterval(() => {
-        //         // Simulasi perubahan suhu
-        //         state.temp += randomBetween(-0.15, 0.15);
-        //         state.temp = clamp(state.temp, 24, 32);
-        //         state.hum += randomBetween(-0.3, 0.3);
-        //         state.hum = clamp(state.hum, 55, 92);
+        function startSimulation() {
+            if (simInterval) return;
+            simInterval = setInterval(function() {
+                if (state.dataReceived) {
+                    if (simInterval) { clearInterval(simInterval);
+                        simInterval = null; }
+                    return;
+                }
 
-        //         // Hitung error
-        //         state.error = state.setpointTemp - state.temp;
-        //         state.deltaError = (state.error - (state._lastError || 0)) / 2;
-        //         state._lastError = state.error;
+                state.temp += randomBetween(-0.15, 0.15);
+                state.temp = clamp(state.temp, 24, 32);
+                state.hum += randomBetween(-0.3, 0.3);
+                state.hum = clamp(state.hum, 55, 92);
 
-        //         // Simulasi fuzzy-PID sederhana
-        //         const p = state.kp * state.error;
-        //         const i = state.ki * (state._integral || 0) + 0.01 * state.error;
-        //         state._integral = (state._integral || 0) + state.error * 2 / 1000;
-        //         state._integral = clamp(state._integral, -10, 10);
-        //         const d = state.kd * state.deltaError;
-        //         state.outputPid = clamp(p + i + d, -100, 100);
+                state.error = state.setpointTemp - state.temp;
+                state.deltaError = (state.error - state._lastError) / 2;
+                state._lastError = state.error;
 
-        //         // Simulasi aturan fuzzy
-        //         const absE = Math.abs(state.error);
-        //         const absDE = Math.abs(state.deltaError);
-        //         state.mfError = [];
-        //         state.mfDelta = [];
-        //         state.mfOutput = [];
-        //         if (absE < 0.5) { state.mfError.push('Z');
-        //             state.mfOutput.push('Z'); }
-        //         if (absE > 0.3 && absE < 1.5) { state.mfError.push('PS');
-        //             state.mfOutput.push('PS'); }
-        //         if (absE > 1.0) { state.mfError.push('PB');
-        //             state.mfOutput.push('PB'); }
-        //         if (absE < -0.3 && absE > -1.5) { state.mfError.push('NS');
-        //             state.mfOutput.push('NS'); }
-        //         if (absE < -1.0) { state.mfError.push('NB');
-        //             state.mfOutput.push('NB'); }
-        //         if (absDE < 0.1) state.mfDelta.push('Z');
-        //         if (absDE > 0.05 && absDE < 0.3) state.mfDelta.push('PS');
-        //         if (absDE > 0.2) state.mfDelta.push('PB');
-        //         if (absDE < -0.05 && absDE > -0.3) state.mfDelta.push('NS');
-        //         if (absDE < -0.2) state.mfDelta.push('NB');
-        //         if (state.mfError.length === 0) state.mfError.push('Z');
-        //         if (state.mfDelta.length === 0) state.mfDelta.push('Z');
-        //         if (state.mfOutput.length === 0) state.mfOutput.push('Z');
+                var p = state.kp * state.error;
+                var i = state.ki * state._integral + 0.01 * state.error;
+                state._integral = state._integral + state.error * 2 / 1000;
+                state._integral = clamp(state._integral, -10, 10);
+                var d = state.kd * state.deltaError;
+                state.outputPid = clamp(p + i + d, -100, 100);
 
-        //         // Update rules
-        //         state.rules.forEach(r => {
-        //             r.active = Math.random() > 0.6;
-        //             r.weight = 0.5 + Math.random() * 0.5;
-        //         });
+                var absE = Math.abs(state.error);
+                var absDE = Math.abs(state.deltaError);
+                state.mfError = [];
+                state.mfDelta = [];
+                state.mfOutput = [];
+                if (absE < 0.5) { state.mfError.push('Z');
+                    state.mfOutput.push('Z'); }
+                if (absE > 0.3 && absE < 1.5) { state.mfError.push('PS');
+                    state.mfOutput.push('PS'); }
+                if (absE > 1.0) { state.mfError.push('PB');
+                    state.mfOutput.push('PB'); }
+                if (absE < -0.3 && absE > -1.5) { state.mfError.push('NS');
+                    state.mfOutput.push('NS'); }
+                if (absE < -1.0) { state.mfError.push('NB');
+                    state.mfOutput.push('NB'); }
+                if (absDE < 0.1) state.mfDelta.push('Z');
+                if (absDE > 0.05 && absDE < 0.3) state.mfDelta.push('PS');
+                if (absDE > 0.2) state.mfDelta.push('PB');
+                if (absDE < -0.05 && absDE > -0.3) state.mfDelta.push('NS');
+                if (absDE < -0.2) state.mfDelta.push('NB');
+                if (state.mfError.length === 0) state.mfError.push('Z');
+                if (state.mfDelta.length === 0) state.mfDelta.push('Z');
+                if (state.mfOutput.length === 0) state.mfOutput.push('Z');
 
-        //         updateAllUI();
-        //         updateChartData();
-        //         updateStatusIndicators();
-        //     }, CONFIG.INTERVAL_SAMPLE);
-        // }
+                state.rules = [
+                    { condition: 'IF error Z AND delta Z THEN Kp Z', weight: 1.0, active: state.mfError.includes('Z') &&
+                            state.mfDelta.includes('Z') },
+                    { condition: 'IF error PS AND delta Z THEN Kp PS', weight: 0.8, active: state.mfError.includes(
+                            'PS') && state.mfDelta.includes('Z') },
+                    { condition: 'IF error NS AND delta Z THEN Kp NS', weight: 0.8, active: state.mfError.includes(
+                            'NS') && state.mfDelta.includes('Z') },
+                    { condition: 'IF error Z AND delta PS THEN Ki PS', weight: 0.7, active: state.mfError.includes(
+                            'Z') && state.mfDelta.includes('PS') },
+                    { condition: 'IF error Z AND delta NS THEN Ki NS', weight: 0.7, active: state.mfError.includes(
+                            'Z') && state.mfDelta.includes('NS') },
+                    { condition: 'IF error PS AND delta NS THEN Kd PS', weight: 0.6, active: state.mfError.includes(
+                            'PS') && state.mfDelta.includes('NS') },
+                    { condition: 'IF error NS AND delta PS THEN Kd NS', weight: 0.6, active: state.mfError.includes(
+                            'NS') && state.mfDelta.includes('PS') },
+                ];
+
+                updateAllUI();
+                updateChartData();
+            }, CONFIG.INTERVAL_SAMPLE);
+        }
 
         // =============================================================
         // 8. UI UPDATE
         // =============================================================
         function updateStatusIndicators() {
-            const setDot = (id, online) => {
-                const el = document.getElementById(id);
-                if (el) el.className = `dot ${online ? 'online' : 'offline'}`;
+            var setDot = function(id, online) {
+                var el = document.getElementById(id);
+                if (el) el.className = 'dot ' + (online ? 'online' : 'offline');
             };
             setDot('wifiDot', state.wifiConnected);
             setDot('mqttDot', state.mqttConnected);
@@ -1330,105 +1436,146 @@
         }
 
         function updateAllUI() {
-            const setpointTempDisplay = document.getElementById('setpointTempDisplay');
-            if (setpointTempDisplay) setpointTempDisplay.innerHTML = `${formatValue(state.setpointTemp, 1)} <span class="unit">°C</span>`;
-            const setpointHumDisplay = document.getElementById('setpointHumDisplay');
-            if (setpointHumDisplay) setpointHumDisplay.innerHTML = `${formatValue(state.setpointHum, 0)} <span class="unit">%</span>`;
+            // Setpoint
+            var spTemp = document.getElementById('setpointTempDisplay');
+            if (spTemp) spTemp.innerHTML = formatValue(state.setpointTemp, 1) + ' <span class="unit">°C</span>';
+            var spHum = document.getElementById('setpointHumDisplay');
+            if (spHum) spHum.innerHTML = formatValue(state.setpointHum, 0) + ' <span class="unit">%</span>';
 
-            const errorEl = document.getElementById('errorDisplay');
-            if (errorEl) {
-                errorEl.innerHTML = `${formatValue(state.error, 2)} <span class="unit">°C</span>`;
-                errorEl.className = `value ${Math.abs(safeNumber(state.error, 0)) > 2 ? 'danger' : Math.abs(safeNumber(state.error, 0)) > 1 ? 'warning' : ''}`;
+            // Error
+            var errEl = document.getElementById('errorDisplay');
+            if (errEl) {
+                var errVal = safeNumber(state.error, 0);
+                errEl.innerHTML = formatValue(state.error, 2) + ' <span class="unit">°C</span>';
+                errEl.className = 'value ' + (Math.abs(errVal) > 2 ? 'danger' : Math.abs(errVal) > 1 ? 'warning' :
+                '');
             }
 
-            const deltaEl = document.getElementById('deltaErrorDisplay');
+            var deltaEl = document.getElementById('deltaErrorDisplay');
             if (deltaEl) {
-                deltaEl.innerHTML = `${formatValue(state.deltaError, 2)} <span class="unit">°C/s</span>`;
-                deltaEl.className = `value ${Math.abs(safeNumber(state.deltaError, 0)) > 0.5 ? 'danger' : Math.abs(safeNumber(state.deltaError, 0)) > 0.2 ? 'warning' : ''}`;
+                var deltaVal = safeNumber(state.deltaError, 0);
+                deltaEl.innerHTML = formatValue(state.deltaError, 2) + ' <span class="unit">°C/s</span>';
+                deltaEl.className = 'value ' + (Math.abs(deltaVal) > 0.5 ? 'danger' : Math.abs(deltaVal) > 0.2 ?
+                    'warning' : '');
             }
 
-            const kpDisplay = document.getElementById('kpDisplay');
-            if (kpDisplay) kpDisplay.textContent = formatValue(state.kp, 2);
-            const kiDisplay = document.getElementById('kiDisplay');
-            if (kiDisplay) kiDisplay.textContent = formatValue(state.ki, 2);
-            const kdDisplay = document.getElementById('kdDisplay');
-            if (kdDisplay) kdDisplay.textContent = formatValue(state.kd, 2);
-            const outputDisplay = document.getElementById('outputDisplay');
-            if (outputDisplay) outputDisplay.innerHTML = `${formatValue(state.outputPid, 1)} <span class="unit">%</span>`;
+            // PID
+            var kpD = document.getElementById('kpDisplay');
+            if (kpD) kpD.textContent = formatValue(state.kp, 2);
+            var kiD = document.getElementById('kiDisplay');
+            if (kiD) kiD.textContent = formatValue(state.ki, 2);
+            var kdD = document.getElementById('kdDisplay');
+            if (kdD) kdD.textContent = formatValue(state.kd, 2);
+            var outD = document.getElementById('outputDisplay');
+            if (outD) outD.innerHTML = formatValue(state.outputPid, 1) + ' <span class="unit">%</span>';
 
-            const kpSlider = document.getElementById('kpSlider');
-            if (kpSlider) kpSlider.value = safeNumber(state.kp, 0);
-            const kpSliderDisplay = document.getElementById('kpSliderDisplay');
-            if (kpSliderDisplay) kpSliderDisplay.textContent = formatValue(state.kp, 1);
-            const kiSlider = document.getElementById('kiSlider');
-            if (kiSlider) kiSlider.value = safeNumber(state.ki, 0);
-            const kiSliderDisplay = document.getElementById('kiSliderDisplay');
-            if (kiSliderDisplay) kiSliderDisplay.textContent = formatValue(state.ki, 1);
-            const kdSlider = document.getElementById('kdSlider');
-            if (kdSlider) kdSlider.value = safeNumber(state.kd, 0);
-            const kdSliderDisplay = document.getElementById('kdSliderDisplay');
-            if (kdSliderDisplay) kdSliderDisplay.textContent = formatValue(state.kd, 2);
+            // Sliders
+            var kpS = document.getElementById('kpSlider');
+            if (kpS) { kpS.value = safeNumber(state.kp, 0); }
+            var kpSD = document.getElementById('kpSliderDisplay');
+            if (kpSD) kpSD.textContent = formatValue(state.kp, 1);
+            var kiS = document.getElementById('kiSlider');
+            if (kiS) { kiS.value = safeNumber(state.ki, 0); }
+            var kiSD = document.getElementById('kiSliderDisplay');
+            if (kiSD) kiSD.textContent = formatValue(state.ki, 1);
+            var kdS = document.getElementById('kdSlider');
+            if (kdS) { kdS.value = safeNumber(state.kd, 0); }
+            var kdSD = document.getElementById('kdSliderDisplay');
+            if (kdSD) kdSD.textContent = formatValue(state.kd, 2);
 
-            const ruleList = document.getElementById('ruleList');
-            const ruleCount = document.getElementById('ruleCount');
-            const activeRules = state.rules.filter(r => r.active);
-            if (ruleCount) ruleCount.textContent = `${activeRules.length} aturan`;
+            // Rules
+            var ruleList = document.getElementById('ruleList');
+            var ruleCount = document.getElementById('ruleCount');
+            var rules = state.rules || [];
+            var activeRules = rules.filter(function(r) { return r.active; });
+            if (ruleCount) ruleCount.textContent = activeRules.length + ' aturan';
             if (ruleList) {
                 if (activeRules.length === 0) {
-                    ruleList.innerHTML = `<div class="rule-item"><span class="rule-text text-gray-400">Tidak ada aturan aktif</span></div>`;
+                    ruleList.innerHTML =
+                        '<div class="rule-item"><span class="rule-text text-gray-400">Tidak ada aturan aktif</span></div>';
                 } else {
-                    ruleList.innerHTML = activeRules.map(r => `
-                      <div class="rule-item active">
-                        <span class="rule-text">${r.condition}</span>
-                        <span class="rule-weight">${safeNumber(r.weight, 0).toFixed(2)}</span>
-                      </div>
-                    `).join('');
+                    var html = '';
+                    for (var i = 0; i < activeRules.length; i++) {
+                        var r = activeRules[i];
+                        html += '<div class="rule-item active">' +
+                            '<span class="rule-text">' + r.condition + '</span>' +
+                            '<span class="rule-weight">' + safeNumber(r.weight, 0).toFixed(2) + '</span>' +
+                            '</div>';
+                    }
+                    ruleList.innerHTML = html;
                 }
             }
 
-            document.querySelectorAll('#mfError .mf-item').forEach(el => {
-                const label = el.textContent.trim();
-                el.classList.toggle('active', state.mfError.includes(label));
-            });
-            document.querySelectorAll('#mfDelta .mf-item').forEach(el => {
-                const label = el.textContent.trim();
-                el.classList.toggle('active', state.mfDelta.includes(label));
-            });
-            document.querySelectorAll('#mfOutput .mf-item').forEach(el => {
-                const label = el.textContent.trim();
-                el.classList.toggle('active', state.mfOutput.includes(label));
-            });
+            // MF Error
+            var mfErrorContainer = document.getElementById('mfError');
+            if (mfErrorContainer) {
+                var items = mfErrorContainer.querySelectorAll('.mf-item');
+                var mfErr = state.mfError || [];
+                items.forEach(function(el) {
+                    var label = el.textContent.trim();
+                    el.classList.toggle('active', mfErr.indexOf(label) !== -1);
+                });
+            }
+
+            var mfDeltaContainer = document.getElementById('mfDelta');
+            if (mfDeltaContainer) {
+                var items = mfDeltaContainer.querySelectorAll('.mf-item');
+                var mfDel = state.mfDelta || [];
+                items.forEach(function(el) {
+                    var label = el.textContent.trim();
+                    el.classList.toggle('active', mfDel.indexOf(label) !== -1);
+                });
+            }
+
+            var mfOutputContainer = document.getElementById('mfOutput');
+            if (mfOutputContainer) {
+                var items = mfOutputContainer.querySelectorAll('.mf-item');
+                var mfOut = state.mfOutput || [];
+                items.forEach(function(el) {
+                    var label = el.textContent.trim();
+                    el.classList.toggle('active', mfOut.indexOf(label) !== -1);
+                });
+            }
+
+            var ls = document.getElementById('loading-screen');
+            if (ls) ls.classList.add('hide');
         }
 
         // =============================================================
         // 9. LIVE TUNING
         // =============================================================
         document.getElementById('kpSlider').addEventListener('input', function() {
-            const val = parseFloat(this.value);
+            var val = parseFloat(this.value);
             document.getElementById('kpSliderDisplay').textContent = val.toFixed(1);
             state.kp = val;
         });
         document.getElementById('kiSlider').addEventListener('input', function() {
-            const val = parseFloat(this.value);
+            var val = parseFloat(this.value);
             document.getElementById('kiSliderDisplay').textContent = val.toFixed(1);
             state.ki = val;
         });
         document.getElementById('kdSlider').addEventListener('input', function() {
-            const val = parseFloat(this.value);
+            var val = parseFloat(this.value);
             document.getElementById('kdSliderDisplay').textContent = val.toFixed(2);
             state.kd = val;
         });
 
         document.getElementById('applyTuningBtn').addEventListener('click', function() {
-            const data = {
+            var data = {
                 kp: state.kp,
                 ki: state.ki,
                 kd: state.kd,
+                setpointTemp: state.setpointTemp,
+                setpointHum: state.setpointHum,
             };
             if (state.mqttConnected && mqttClient) {
                 mqttClient.publish(CONFIG.MQTT_TOPICS.SETTING_UPDATE, JSON.stringify(data));
-                SyncModule.updateLocalState({ kp: state.kp, ki: state.ki, kd: state.kd, setpointTemp: state.setpointTemp, setpointHum: state.setpointHum }, mqttManager);
-                showToast(`Tuning diterapkan: Kp=${state.kp}, Ki=${state.ki}, Kd=${state.kd}`, 'success');
+                if (typeof SyncModule !== 'undefined') {
+                    SyncModule.updateLocalState(data, mqttClient);
+                }
+                publishFuzzyStatus();
+                showToast('Tuning diterapkan: Kp=' + state.kp.toFixed(1) + ', Ki=' + state.ki.toFixed(1) + ', Kd=' + state
+                    .kd.toFixed(2), 'success');
             } else {
                 showToast('MQTT tidak terhubung, tuning hanya di dashboard', 'warning');
             }
@@ -1438,10 +1585,10 @@
         // =============================================================
         // 10. CHART
         // =============================================================
-        let chart = null;
+        var chart = null;
 
         function initChart() {
-            const ctx = document.getElementById('fuzzyChart').getContext('2d');
+            var ctx = document.getElementById('fuzzyChart').getContext('2d');
             chart = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -1530,8 +1677,8 @@
 
         function updateChartData() {
             if (!chart) return;
-            const now = formatTime();
-            const maxPoints = 200;
+            var now = formatTime();
+            var maxPoints = 200;
             state.chartData.labels.push(now);
             state.chartData.kp.push(state.kp);
             state.chartData.ki.push(state.ki);
@@ -1560,40 +1707,44 @@
         // =============================================================
         // 11. CHART PARAM FILTER
         // =============================================================
-        document.querySelectorAll('[data-param]').forEach(btn => {
+        document.querySelectorAll('[data-param]').forEach(function(btn) {
             btn.addEventListener('click', function() {
-                document.querySelectorAll('[data-param]').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('[data-param]').forEach(function(b) { b.classList.remove('active'); });
                 this.classList.add('active');
-                const param = this.dataset.param;
-                const datasets = chart.data.datasets;
+                var param = this.dataset.param;
+                var datasets = chart.data.datasets;
                 if (param === 'all') {
-                    datasets.forEach(d => d.hidden = false);
+                    datasets.forEach(function(d) { d.hidden = false; });
                 } else {
-                    const map = { 'kp': 0, 'ki': 1, 'kd': 2 };
-                    datasets.forEach((d, i) => {
+                    var map = { 'kp': 0, 'ki': 1, 'kd': 2, 'output': 3, 'error': 4 };
+                    datasets.forEach(function(d, i) {
                         d.hidden = i !== map[param];
                     });
                 }
                 chart.update();
-                showToast(`Menampilkan ${param.toUpperCase()}`, 'info');
+                showToast('Menampilkan ' + param.toUpperCase(), 'info');
             });
         });
 
-        // Saat slider Kp diubah
-        function updateKp(val) {
-            state.kp = val;
-            // Sinkronisasi
-            SyncModule.updateLocalState({ kp: val }, mqttManager);
-            // Kirim ke ESP32 jika perlu
-            mqttClient.publish('setting/update', JSON.stringify({ kp: val }));
+        // =============================================================
+        // 12. SINKRONISASI DARI SyncModule
+        // =============================================================
+        if (typeof SyncModule !== 'undefined') {
+            SyncModule.setOnStateChange(function(syncState) {
+                if (syncState.kp !== undefined) state.kp = syncState.kp;
+                if (syncState.ki !== undefined) state.ki = syncState.ki;
+                if (syncState.kd !== undefined) state.kd = syncState.kd;
+                if (syncState.setpointTemp !== undefined) state.setpointTemp = syncState.setpointTemp;
+                if (syncState.setpointHum !== undefined) state.setpointHum = syncState.setpointHum;
+                updateAllUI();
+                updateChartData();
+            });
         }
 
         // =============================================================
-        // 12. INIT
+        // 13. INIT
         // =============================================================
         function init() {
-            if (initialized) return;
-            initialized = true;
             state.setpointTemp = 27.5;
             state.setpointHum = 75;
             state.kp = 2.0;
@@ -1606,32 +1757,32 @@
             updateAllUI();
             connectMQTT();
             initChart();
-            updateGauges();
+            startSimulation();
 
-            addNotification('Menunggu data dari ESP32...', 'info');
-            addLog('Sistem menunggu koneksi MQTT');
-
-            setTimeout(() => {
-                const loadingScreen = document.getElementById('loading-screen');
-                if (loadingScreen) loadingScreen.classList.add('hide');
-            }, 800);
-
-            setInterval(() => {
+            setInterval(function() {
                 if (!state.mqttConnected && mqttClient) {
                     try { mqttClient.reconnect(); } catch (e) {}
                 }
                 updateStatusIndicators();
+                if (state.dataReceived && simInterval) {
+                    clearInterval(simInterval);
+                    simInterval = null;
+                }
             }, 10000);
 
-            setInterval(() => {
+            setTimeout(function() {
+                var ls = document.getElementById('loading-screen');
+                if (ls) ls.classList.add('hide');
+            }, 1000);
+
+            setInterval(function() {
                 if (state.mqttConnected && mqttClient) {
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
-                        dashboard: 'online',
-                        timestamp: new Date().toISOString(),
-                        health: state.health,
-                    }));
+                    publishFuzzyStatus();
                 }
-            }, 15000);
+            }, 10000);
+
+            showToast('🧠 Fuzzy PID siap', 'success');
+            console.log('🧠 Fuzzy PID Page Loaded');
         }
 
         if (document.readyState === 'loading') {
@@ -1640,10 +1791,8 @@
             init();
         }
 
-        // Ekspos untuk debug
         window.__state = state;
         window.__config = CONFIG;
-        console.log('🧠 Fuzzy PID Page Loaded');
     </script>
 
 </body>

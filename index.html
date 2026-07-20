@@ -13,14 +13,14 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
     </script>
-    <script src="assets/js/sync.js">
-    </script>
-    <script src="assets/js/mqtt-config.js">
-    </script>
+
+    <!-- ===== CORE SYSTEM (Single Source of Truth) ===== -->
     <script src="assets/js/core.js">
     </script>
+    <script src="assets/js/sync.js">
+    </script>
+
     <style>
-        /* --- CSS (sama seperti sebelumnya, tidak diubah) --- */
         /* ===== RESET & BASE ===== */
         * {
             margin: 0;
@@ -1200,7 +1200,7 @@
             <a href="about.html"><i class="fas fa-user"></i><span>About</span></a>
         </nav>
         <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:#4a5268;text-align:center;">
-            v2.0.0
+            v3.0.0
         </div>
     </aside>
 
@@ -1470,7 +1470,7 @@
 
         <!-- ===== FOOTER ===== -->
         <div class="text-center text-xs text-gray-500 mt-8 border-t border-white/5 pt-4">
-            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v2.0.0
+            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v3.0.0
         </div>
     </div>
 
@@ -1493,65 +1493,25 @@
     <!-- ===== JAVASCRIPT ===== -->
     <script>
         // =============================================================
-        // 1. CONFIGURATION (HANYA DI SINI, TIDAK PAKAI FILE EKSTERNAL)
+        // 1. KONFIGURASI UNTUK CORE
         // =============================================================
-        var CONFIG = {
-            MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
-            MQTT_TOPICS: {
-                SENSOR_SHT31: 'sensor/sht31',
-                SENSOR_MQ135: 'sensor/mq135',
-                SENSOR_STATUS: 'sensor/status',
-                SYSTEM_ALARM: 'system/alarm',
-                SELF_MONITOR: 'system/selfmonitor',
-                ACTUATOR_STATUS: 'actuator/status',
-                ACTUATOR_CONTROL: 'actuator/control',
-                SYSTEM_CONTROL: 'system/control',
-                SETTING_UPDATE: 'setting/update',
-                SYSTEM_STATE: 'system/state'
-            },
+        var APP_CONFIG = {
             SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzomrIc68ISrGNVsOTgYI3nPy0kBgQm4WVUCYWfkB8lcwXgBJPbu2j3yxFhoz59VZk9Xw/exec',
             TELEGRAM_BOT_TOKEN: 'YOUR_BOT_TOKEN',
             TELEGRAM_CHAT_ID: 'YOUR_CHAT_ID',
-            INTERVAL_SAMPLE: 2000,
-            INTERVAL_LOG: 30000
         };
 
         // =============================================================
-        // 2. STATE (SINGLE SOURCE OF TRUTH)
+        // 2. STATE REFERENCE (dari Core)
         // =============================================================
-        var state = {
-            temp: null,
-            hum: null,
-            nh3: null,
-            peltierPwm: 0,
-            fanPwm: 0,
-            coolFanPwm: 0,
-            peltierOn: false,
-            fanOn: false,
-            coolFanOn: false,
-            mode: 'AUTO',
-            setpointTemp: 27.5,
-            setpointHum: 75,
-            kp: 2.0,
-            ki: 0.5,
-            kd: 0.1,
-            error: 0,
-            deltaError: 0,
-            outputPid: 0,
-            health: 98,
-            uptime: 0,
-            alarms: [],
-            notifications: [],
-            logs: [],
-            mqttConnected: false,
-            wifiConnected: true,
-            sheetConnected: true,
-            chartData: { labels: [], temp: [], hum: [], nh3: [], pwmPeltier: [], pwmFan: [], pwmCool: [] },
-            dataReceived: false
-        };
-
+        var state = null;
+        var stateManager = null;
+        var mqttManager = null;
+        var syncModule = null;
+        var chart = null;
+        var chartData = { labels: [], temp: [], hum: [], nh3: [], pwmPeltier: [], pwmFan: [], pwmCool: [] };
         var initialized = false;
-        var mqttClient = null;
+        var updateInterval = null;
 
         // =============================================================
         // 3. UTILITY FUNCTIONS
@@ -1561,19 +1521,7 @@
             return d.toLocaleTimeString('id-ID', { hour12: false });
         }
 
-        function formatDate(d) {
-            d = d || new Date();
-            return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-        }
-
         function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
-
-        function randomBetween(min, max) { return Math.random() * (max - min) + min; }
-
-        function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
-
-        function debounce(fn, ms) { var timer; return function() { clearTimeout(timer);
-                timer = setTimeout(fn, ms); }; }
 
         function safeNumber(value, fallback) {
             fallback = fallback || 0;
@@ -1590,7 +1538,7 @@
         }
 
         // =============================================================
-        // 4. TOAST NOTIFICATIONS
+        // 4. TOAST & UI HELPERS
         // =============================================================
         function showToast(message, type, duration) {
             type = type || 'info';
@@ -1615,39 +1563,51 @@
             }, duration);
         }
 
-        // =============================================================
-        // 5. NOTIFICATIONS & LOGS
-        // =============================================================
         function addNotification(message, type) {
             type = type || 'info';
-            var time = formatTime();
-            state.notifications.unshift({ message: message, type: type, time: time });
-            if (state.notifications.length > 50) state.notifications.pop();
+            // Gunakan Core StateManager jika tersedia
+            if (stateManager && typeof stateManager.update === 'function') {
+                var notifs = stateManager.get('notifications') || [];
+                notifs.unshift({ message: message, type: type, time: formatTime() });
+                if (notifs.length > 50) notifs.pop();
+                stateManager.set('notifications', notifs, { publish: true, sync: true });
+            }
             renderNotifications();
         }
 
         function addLog(message) {
-            var time = formatTime();
-            state.logs.unshift({ message: message, time: time });
-            if (state.logs.length > 50) state.logs.pop();
+            if (stateManager && typeof stateManager.update === 'function') {
+                var logs = stateManager.get('logs') || [];
+                logs.unshift({ message: message, time: formatTime() });
+                if (logs.length > 50) logs.pop();
+                stateManager.set('logs', logs, { publish: true, sync: true });
+            }
             renderLogs();
         }
 
         function addAlarm(message, active) {
             active = (active !== undefined) ? active : true;
-            var existing = state.alarms.filter(function(a) { return a.message === message; });
-            if (existing.length > 0) {
-                existing[0].active = active;
-            } else {
-                state.alarms.push({ message: message, active: active });
+            if (stateManager && typeof stateManager.update === 'function') {
+                var alarms = stateManager.get('alarms') || [];
+                var existing = alarms.filter(function(a) { return a.message === message; });
+                if (existing.length > 0) {
+                    existing[0].active = active;
+                } else {
+                    alarms.push({ message: message, active: active });
+                }
+                stateManager.set('alarms', alarms, { publish: true, sync: true });
             }
             renderAlarms();
         }
 
+        // =============================================================
+        // 5. RENDER FUNCTIONS
+        // =============================================================
         function renderNotifications() {
             var container = document.getElementById('notifList');
             var count = document.getElementById('notifCount');
-            if (!state.notifications.length) {
+            var notifs = stateManager ? stateManager.get('notifications') || [] : [];
+            if (!notifs.length) {
                 container.innerHTML =
                     '<div class="notif-item"><i class="fas fa-check-circle text-green-400"></i><span>Sistem siap</span><span class="time">' +
                     formatTime() + '</span></div>';
@@ -1655,8 +1615,8 @@
                 return;
             }
             var html = '';
-            for (var i = 0; i < Math.min(state.notifications.length, 10); i++) {
-                var n = state.notifications[i];
+            for (var i = 0; i < Math.min(notifs.length, 10); i++) {
+                var n = notifs[i];
                 var iconClass = n.type === 'success' ? 'fa-check-circle text-green-400' :
                     n.type === 'error' ? 'fa-exclamation-circle text-red-400' :
                     n.type === 'warning' ? 'fa-triangle-exclamation text-yellow-400' :
@@ -1668,18 +1628,19 @@
                     '</div>';
             }
             container.innerHTML = html;
-            count.textContent = state.notifications.length;
+            count.textContent = notifs.length;
         }
 
         function renderLogs() {
             var container = document.getElementById('logList');
-            if (!state.logs.length) {
+            var logs = stateManager ? stateManager.get('logs') || [] : [];
+            if (!logs.length) {
                 container.innerHTML = '<div class="text-gray-400 text-center py-4">Belum ada aktivitas</div>';
                 return;
             }
             var html = '';
-            for (var i = 0; i < Math.min(state.logs.length, 10); i++) {
-                var l = state.logs[i];
+            for (var i = 0; i < Math.min(logs.length, 10); i++) {
+                var l = logs[i];
                 html += '<div class="flex justify-between items-center py-1 border-b border-white/5 text-sm">' +
                     '<span>' + l.message + '</span>' +
                     '<span class="text-gray-500 text-xs">' + l.time + '</span>' +
@@ -1691,7 +1652,8 @@
         function renderAlarms() {
             var container = document.getElementById('alarmList');
             var count = document.getElementById('alarmCount');
-            var active = state.alarms.filter(function(a) { return a.active; });
+            var alarms = stateManager ? stateManager.get('alarms') || [] : [];
+            var active = alarms.filter(function(a) { return a.active; });
             count.textContent = active.length + ' aktif';
             if (!active.length) {
                 container.innerHTML = '<div class="alarm-item"><span class="icon">✅</span> Semua normal</div>';
@@ -1708,207 +1670,33 @@
         }
 
         // =============================================================
-        // 6. CLOCK
-        // =============================================================
-        function updateClock() {
-            document.getElementById('clock').textContent = formatTime();
-        }
-        setInterval(updateClock, 1000);
-        updateClock();
-
-        // =============================================================
-        // 7. SIDEBAR TOGGLE (Mobile)
-        // =============================================================
-        document.getElementById('menuToggle').addEventListener('click', function() {
-            document.getElementById('sidebar').classList.toggle('open');
-        });
-        document.addEventListener('click', function(e) {
-            var sidebar = document.getElementById('sidebar');
-            var toggle = document.getElementById('menuToggle');
-            if (window.innerWidth <= 1024 && !sidebar.contains(e.target) && !toggle.contains(e.target)) {
-                sidebar.classList.remove('open');
-            }
-        });
-
-        // =============================================================
-        // 8. MQTT CLIENT (DIRECT, TANPA mqtt-config.js ATAU sync.js)
-        // =============================================================
-        function connectMQTT() {
-            if (mqttClient && mqttClient.connected) {
-                return;
-            }
-            try {
-                mqttClient = mqtt.connect(CONFIG.MQTT_BROKER, {
-                    clientId: 'dashboard_' + uid(),
-                    clean: true,
-                    reconnectPeriod: 3000,
-                });
-                mqttClient.on('connect', function() {
-                    state.mqttConnected = true;
-                    updateStatusIndicators();
-                    showToast('MQTT Terhubung', 'success');
-                    addLog('MQTT Connected');
-                    // Subscribe topik
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_STATUS);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_STATE);
-                    // Publish ready
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
-                        command: 'dashboard_online',
-                        timestamp: new Date().toISOString()
-                    }));
-                });
-                mqttClient.on('message', function(topic, payload) {
-                    try {
-                        var data = JSON.parse(payload.toString());
-                        handleMqttMessage(topic, data);
-                    } catch (e) { /* ignore */ }
-                });
-                mqttClient.on('close', function() {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                    showToast('MQTT Terputus', 'error');
-                    addLog('MQTT Disconnected');
-                });
-                mqttClient.on('error', function(err) {
-                    console.error('MQTT Error:', err);
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                });
-            } catch (e) {
-                console.error('MQTT init error:', e);
-                state.mqttConnected = false;
-                updateStatusIndicators();
-            }
-        }
-
-        function handleMqttMessage(topic, data) {
-            var needUpdate = false;
-            switch (topic) {
-                case CONFIG.MQTT_TOPICS.SENSOR_SHT31:
-                    if (data.temperature !== undefined) { state.temp = data.temperature;
-                        needUpdate = true; }
-                    if (data.humidity !== undefined) { state.hum = data.humidity;
-                        needUpdate = true; }
-                    break;
-                case CONFIG.MQTT_TOPICS.SENSOR_MQ135:
-                    if (data.nh3 !== undefined) { state.nh3 = data.nh3;
-                        needUpdate = true; }
-                    break;
-                case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
-                    if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
-                    if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
-                    if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
-                    if (data.peltierOn !== undefined) state.peltierOn = data.peltierOn;
-                    if (data.fanOn !== undefined) state.fanOn = data.fanOn;
-                    if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
-                    if (data.mode !== undefined) state.mode = data.mode;
-                    needUpdate = true;
-                    break;
-                case CONFIG.MQTT_TOPICS.SYSTEM_STATE:
-                    // Sinkronisasi state dari user lain
-                    if (data.mode !== undefined) state.mode = data.mode;
-                    if (data.peltierOn !== undefined) state.peltierOn = data.peltierOn;
-                    if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
-                    if (data.fanOn !== undefined) state.fanOn = data.fanOn;
-                    if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
-                    if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
-                    if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
-                    if (data.setpointTemp !== undefined) state.setpointTemp = data.setpointTemp;
-                    if (data.setpointHum !== undefined) state.setpointHum = data.setpointHum;
-                    if (data.kp !== undefined) state.kp = data.kp;
-                    if (data.ki !== undefined) state.ki = data.ki;
-                    if (data.kd !== undefined) state.kd = data.kd;
-                    if (data.error !== undefined) state.error = data.error;
-                    if (data.deltaError !== undefined) state.deltaError = data.deltaError;
-                    if (data.outputPid !== undefined) state.outputPid = data.outputPid;
-                    if (data.health !== undefined) state.health = data.health;
-                    if (data.alarms !== undefined) state.alarms = data.alarms;
-                    if (data.notifications !== undefined) state.notifications = data.notifications;
-                    if (data.logs !== undefined) state.logs = data.logs;
-                    needUpdate = true;
-                    break;
-                case CONFIG.MQTT_TOPICS.SYSTEM_ALARM:
-                    if (data.alarm) addAlarm(data.alarm, data.active !== false);
-                    break;
-                case CONFIG.MQTT_TOPICS.SELF_MONITOR:
-                    if (data.health !== undefined) state.health = data.health;
-                    needUpdate = true;
-                    break;
-                default:
-                    break;
-            }
-
-            if (needUpdate) {
-                state.dataReceived = true;
-                updateAllUI();
-            }
-        }
-
-        function publishControl(payload) {
-            if (!payload || typeof payload !== 'object') return;
-            if (!mqttClient || !mqttClient.connected) {
-                console.warn('MQTT not connected, control not published');
-                return;
-            }
-            mqttClient.publish(CONFIG.MQTT_TOPICS.ACTUATOR_CONTROL, JSON.stringify(payload));
-            // Juga publish ke system/state untuk sinkronisasi antar user
-            var syncPayload = {
-                mode: state.mode,
-                peltierOn: state.peltierOn,
-                peltierPwm: state.peltierPwm,
-                fanOn: state.fanOn,
-                fanPwm: state.fanPwm,
-                coolFanOn: state.coolFanOn,
-                coolFanPwm: state.coolFanPwm,
-                setpointTemp: state.setpointTemp,
-                setpointHum: state.setpointHum,
-                kp: state.kp,
-                ki: state.ki,
-                kd: state.kd,
-                error: state.error,
-                deltaError: state.deltaError,
-                outputPid: state.outputPid,
-                health: state.health,
-                alarms: state.alarms,
-                notifications: state.notifications.slice(0, 10),
-                logs: state.logs.slice(0, 10),
-                temp: state.temp,
-                hum: state.hum,
-                nh3: state.nh3,
-            };
-            if (mqttClient && mqttClient.connected) {
-                mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_STATE, JSON.stringify(syncPayload));
-            }
-        }
-
-        // =============================================================
-        // 9. UI UPDATE FUNCTIONS
+        // 6. UI UPDATE FUNCTIONS (dari state)
         // =============================================================
         function updateModeUI() {
+            var mode = stateManager ? stateManager.get('mode') || 'AUTO' : 'AUTO';
             var actuatorMode = document.getElementById('actuatorMode');
             if (actuatorMode) {
-                actuatorMode.innerHTML = 'Mode: <strong>' + (state.mode || 'AUTO') + '</strong>';
+                actuatorMode.innerHTML = 'Mode: <strong>' + mode + '</strong>';
             }
         }
 
         function updateSensorDisplay() {
-            var tempValue = safeNumber(state.temp, 0);
-            var humValue = safeNumber(state.hum, 0);
-            var nh3Value = safeNumber(state.nh3, 0);
+            var temp = stateManager ? stateManager.get('temperature') : null;
+            var hum = stateManager ? stateManager.get('humidity') : null;
+            var nh3 = stateManager ? stateManager.get('nh3') : null;
+
+            var tempValue = safeNumber(temp, 0);
+            var humValue = safeNumber(hum, 0);
+            var nh3Value = safeNumber(nh3, 0);
 
             var tempEl = document.getElementById('tempValue');
-            if (tempEl) tempEl.innerHTML = formatValue(state.temp, 1) + ' <span class="unit">°C</span>';
+            if (tempEl) tempEl.innerHTML = formatValue(temp, 1) + ' <span class="unit">°C</span>';
 
             var humEl = document.getElementById('humValue');
-            if (humEl) humEl.innerHTML = formatValue(state.hum, 1) + ' <span class="unit">%RH</span>';
+            if (humEl) humEl.innerHTML = formatValue(hum, 1) + ' <span class="unit">%RH</span>';
 
             var nh3El = document.getElementById('nh3Value');
-            if (nh3El) nh3El.innerHTML = formatValue(state.nh3, 1) + ' <span class="unit">ppm</span>';
+            if (nh3El) nh3El.innerHTML = formatValue(nh3, 1) + ' <span class="unit">ppm</span>';
 
             var tempPct = ((tempValue - 24) / (29 - 24)) * 100;
             var tempProgress = document.getElementById('tempProgress');
@@ -1931,7 +1719,7 @@
                 nh3Progress.style.background = nh3Value > 25 ? '#e74c3c' : nh3Value > 15 ? '#f1c40f' : '#2a9d8f';
             }
 
-            var hasTemp = state.temp !== null && state.temp !== undefined && !Number.isNaN(Number(state.temp));
+            var hasTemp = temp !== null && temp !== undefined && !Number.isNaN(Number(temp));
             var tempBadge = document.getElementById('tempStatusBadge');
             if (tempBadge) {
                 tempBadge.textContent = !hasTemp ? 'Menunggu' : tempValue > 29 ? 'Panas' : tempValue < 26 ? 'Dingin' :
@@ -1940,7 +1728,7 @@
                     'warning' : 'normal');
             }
 
-            var hasHum = state.hum !== null && state.hum !== undefined && !Number.isNaN(Number(state.hum));
+            var hasHum = hum !== null && hum !== undefined && !Number.isNaN(Number(hum));
             var humBadge = document.getElementById('humStatusBadge');
             if (humBadge) {
                 humBadge.textContent = !hasHum ? 'Menunggu' : humValue > 90 ? 'Basah' : humValue < 60 ? 'Kering' :
@@ -1949,7 +1737,7 @@
                     'warning' : 'normal');
             }
 
-            var hasNh3 = state.nh3 !== null && state.nh3 !== undefined && !Number.isNaN(Number(state.nh3));
+            var hasNh3 = nh3 !== null && nh3 !== undefined && !Number.isNaN(Number(nh3));
             var nh3Badge = document.getElementById('nh3StatusBadge');
             if (nh3Badge) {
                 nh3Badge.textContent = !hasNh3 ? 'Menunggu' : nh3Value > 25 ? 'Berbahaya' : nh3Value > 15 ? 'Waspada' :
@@ -1959,38 +1747,45 @@
             }
 
             var gaugeTempVal = document.getElementById('gaugeTempVal');
-            if (gaugeTempVal) gaugeTempVal.textContent = formatValue(state.temp, 1);
+            if (gaugeTempVal) gaugeTempVal.textContent = formatValue(temp, 1);
 
             var gaugeHumVal = document.getElementById('gaugeHumVal');
-            if (gaugeHumVal) gaugeHumVal.textContent = formatValue(state.hum, 1);
+            if (gaugeHumVal) gaugeHumVal.textContent = formatValue(hum, 1);
 
             var gaugeNh3Val = document.getElementById('gaugeNh3Val');
-            if (gaugeNh3Val) gaugeNh3Val.textContent = formatValue(state.nh3, 1);
+            if (gaugeNh3Val) gaugeNh3Val.textContent = formatValue(nh3, 1);
         }
 
         function updateActuatorDisplay() {
+            var peltierOn = stateManager ? stateManager.get('peltierOn') || false : false;
+            var peltierPwm = stateManager ? stateManager.get('peltierPwm') || 0 : 0;
+            var fanOn = stateManager ? stateManager.get('fanOn') || false : false;
+            var fanPwm = stateManager ? stateManager.get('fanPwm') || 0 : 0;
+            var coolFanOn = stateManager ? stateManager.get('coolFanOn') || false : false;
+            var coolFanPwm = stateManager ? stateManager.get('coolFanPwm') || 0 : 0;
+
             updateModeUI();
 
             var peltier = document.getElementById('peltierDetail');
-            if (peltier) peltier.textContent = (state.peltierOn ? 'ON' : 'OFF') + ' · ' + formatValue(state.peltierPwm,
-                0) + '%';
+            if (peltier) peltier.textContent = (peltierOn ? 'ON' : 'OFF') + ' · ' + formatValue(peltierPwm, 0) + '%';
             var pLed = document.getElementById('peltierLed');
-            if (pLed) pLed.className = 'status-led ' + (state.peltierOn ? 'on' : 'off');
+            if (pLed) pLed.className = 'status-led ' + (peltierOn ? 'on' : 'off');
 
             var fan = document.getElementById('fanDetail');
-            if (fan) fan.textContent = (state.fanOn ? 'ON' : 'OFF') + ' · ' + formatValue(state.fanPwm, 0) + '%';
+            if (fan) fan.textContent = (fanOn ? 'ON' : 'OFF') + ' · ' + formatValue(fanPwm, 0) + '%';
             var fLed = document.getElementById('fanLed');
-            if (fLed) fLed.className = 'status-led ' + (state.fanOn ? 'on' : 'off');
+            if (fLed) fLed.className = 'status-led ' + (fanOn ? 'on' : 'off');
 
             var cool = document.getElementById('coolFanDetail');
-            if (cool) cool.textContent = (state.coolFanOn ? 'ON' : 'OFF') + ' · ' + formatValue(state.coolFanPwm, 0) +
-                '%';
+            if (cool) cool.textContent = (coolFanOn ? 'ON' : 'OFF') + ' · ' + formatValue(coolFanPwm, 0) + '%';
             var cLed = document.getElementById('coolFanLed');
-            if (cLed) cLed.className = 'status-led ' + (state.coolFanOn ? 'on' : 'off');
+            if (cLed) cLed.className = 'status-led ' + (coolFanOn ? 'on' : 'off');
         }
 
         function updateHealthDisplay() {
-            var val = Math.round(clamp(safeNumber(state.health, 0), 0, 100));
+            var health = stateManager ? stateManager.get('health') || 100 : 100;
+            var val = Math.round(clamp(safeNumber(health, 0), 0, 100));
+
             var healthValue = document.getElementById('healthValue');
             if (healthValue) healthValue.textContent = val + '%';
 
@@ -2020,40 +1815,40 @@
                     label.className = 'text-xs text-red-400';
                 }
             }
-
-            state.uptime = safeNumber(state.uptime, 0) + CONFIG.INTERVAL_SAMPLE / 1000;
-            var hrs = Math.floor(state.uptime / 3600);
-            var mins = Math.floor((state.uptime % 3600) / 60);
-            var uptimeEl = document.getElementById('uptime');
-            if (uptimeEl) uptimeEl.textContent = hrs + 'h ' + mins + 'm';
         }
 
         function updateStatusIndicators() {
+            var mqttConnected = stateManager ? stateManager.get('isMqttConnected') || false : false;
+            var wifiConnected = stateManager ? stateManager.get('wifiStatus') === 'online' : true;
+            var sheetConnected = stateManager ? stateManager.get('isSpreadsheetConnected') || false : true;
+
             var setDot = function(id, online) {
                 var el = document.getElementById(id);
                 if (el) { el.className = 'dot ' + (online ? 'online' : 'offline'); }
             };
-            setDot('wifiDot', state.wifiConnected);
-            setDot('mqttDot', state.mqttConnected);
-            setDot('sheetDot', state.sheetConnected);
+            setDot('wifiDot', wifiConnected);
+            setDot('mqttDot', mqttConnected);
+            setDot('sheetDot', sheetConnected);
 
             var statusEsp = document.getElementById('statusEsp');
-            if (statusEsp) statusEsp.className = 'dot ' + (state.wifiConnected ? 'green' : 'red');
+            if (statusEsp) statusEsp.className = 'dot ' + (wifiConnected ? 'green' : 'red');
 
             var statusWifi = document.getElementById('statusWifi');
-            if (statusWifi) statusWifi.className = 'dot ' + (state.wifiConnected ? 'green' : 'red');
+            if (statusWifi) statusWifi.className = 'dot ' + (wifiConnected ? 'green' : 'red');
 
             var statusMqtt = document.getElementById('statusMqtt');
-            if (statusMqtt) statusMqtt.className = 'dot ' + (state.mqttConnected ? 'green' : 'red');
+            if (statusMqtt) statusMqtt.className = 'dot ' + (mqttConnected ? 'green' : 'red');
 
             var statusSheet = document.getElementById('statusSheet');
-            if (statusSheet) statusSheet.className = 'dot ' + (state.sheetConnected ? 'green' : 'red');
+            if (statusSheet) statusSheet.className = 'dot ' + (sheetConnected ? 'green' : 'red');
 
+            var mode = stateManager ? stateManager.get('mode') || 'AUTO' : 'AUTO';
             var statusFuzzy = document.getElementById('statusFuzzy');
-            if (statusFuzzy) statusFuzzy.className = 'dot ' + (state.mode === 'AUTO' ? 'green' : 'yellow');
+            if (statusFuzzy) statusFuzzy.className = 'dot ' + (mode === 'AUTO' ? 'green' : 'yellow');
 
+            var health = stateManager ? stateManager.get('health') || 100 : 100;
             var statusSelf = document.getElementById('statusSelf');
-            if (statusSelf) statusSelf.className = 'dot ' + (state.health > 60 ? 'green' : 'yellow');
+            if (statusSelf) statusSelf.className = 'dot ' + (health > 60 ? 'green' : 'yellow');
         }
 
         function updateAllUI() {
@@ -2063,10 +1858,13 @@
             updateStatusIndicators();
             updateGauges();
             updateChartData();
+            renderNotifications();
+            renderLogs();
+            renderAlarms();
         }
 
         // =============================================================
-        // 10. GAUGES (Canvas)
+        // 7. GAUGES (Canvas)
         // =============================================================
         function drawGauge(canvasId, value, min, max, unit, color) {
             var canvas = document.getElementById(canvasId);
@@ -2082,7 +1880,8 @@
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            var v = clamp(safeNumber(value, min), min, max);
+            var val = safeNumber(value, min);
+            var v = clamp(val, min, max);
             var pct = (v - min) / (max - min);
             var startAngle = -Math.PI * 0.75;
             var endAngle = Math.PI * 0.75;
@@ -2114,25 +1913,26 @@
         }
 
         function updateGauges() {
-            drawGauge('gaugeTemp', state.temp, 20, 35, '°C', '#2a9d8f');
-            drawGauge('gaugeHum', state.hum, 40, 100, '%RH', '#3498db');
-            drawGauge('gaugeNh3', state.nh3, 0, 40, 'ppm', '#f1c40f');
+            var temp = stateManager ? stateManager.get('temperature') : null;
+            var hum = stateManager ? stateManager.get('humidity') : null;
+            var nh3 = stateManager ? stateManager.get('nh3') : null;
+            drawGauge('gaugeTemp', temp, 20, 35, '°C', '#2a9d8f');
+            drawGauge('gaugeHum', hum, 40, 100, '%RH', '#3498db');
+            drawGauge('gaugeNh3', nh3, 0, 40, 'ppm', '#f1c40f');
         }
 
         // =============================================================
-        // 11. CHART (Chart.js)
+        // 8. CHART (Chart.js)
         // =============================================================
-        var chart = null;
-
         function initChart() {
             var ctx = document.getElementById('realtimeChart').getContext('2d');
             chart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: state.chartData.labels,
+                    labels: chartData.labels,
                     datasets: [{
                         label: 'Suhu (°C)',
-                        data: state.chartData.temp,
+                        data: chartData.temp,
                         borderColor: '#2a9d8f',
                         backgroundColor: 'rgba(42,157,143,0.05)',
                         borderWidth: 2,
@@ -2141,7 +1941,7 @@
                         fill: true,
                     }, {
                         label: 'Kelembaban (%)',
-                        data: state.chartData.hum,
+                        data: chartData.hum,
                         borderColor: '#3498db',
                         backgroundColor: 'rgba(52,152,219,0.05)',
                         borderWidth: 2,
@@ -2150,7 +1950,7 @@
                         fill: true,
                     }, {
                         label: 'NH₃ (ppm)',
-                        data: state.chartData.nh3,
+                        data: chartData.nh3,
                         borderColor: '#f1c40f',
                         backgroundColor: 'rgba(241,196,15,0.05)',
                         borderWidth: 2,
@@ -2159,7 +1959,7 @@
                         fill: true,
                     }, {
                         label: 'PWM Peltier (%)',
-                        data: state.chartData.pwmPeltier,
+                        data: chartData.pwmPeltier,
                         borderColor: '#e74c3c',
                         borderWidth: 1.5,
                         pointRadius: 0,
@@ -2167,7 +1967,7 @@
                         borderDash: [4, 4],
                     }, {
                         label: 'PWM Fan (%)',
-                        data: state.chartData.pwmFan,
+                        data: chartData.pwmFan,
                         borderColor: '#e67e22',
                         borderWidth: 1.5,
                         pointRadius: 0,
@@ -2175,7 +1975,7 @@
                         borderDash: [4, 4],
                     }, {
                         label: 'PWM Cool Fan (%)',
-                        data: state.chartData.pwmCool,
+                        data: chartData.pwmCool,
                         borderColor: '#9b59b6',
                         borderWidth: 1.5,
                         pointRadius: 0,
@@ -2223,118 +2023,75 @@
             if (!chart) return;
             var now = formatTime();
             var maxPoints = 200;
-            state.chartData.labels.push(now);
-            state.chartData.temp.push(state.temp);
-            state.chartData.hum.push(state.hum);
-            state.chartData.nh3.push(state.nh3);
-            state.chartData.pwmPeltier.push(state.peltierPwm);
-            state.chartData.pwmFan.push(state.fanPwm);
-            state.chartData.pwmCool.push(state.coolFanPwm);
 
-            if (state.chartData.labels.length > maxPoints) {
-                state.chartData.labels.shift();
-                state.chartData.temp.shift();
-                state.chartData.hum.shift();
-                state.chartData.nh3.shift();
-                state.chartData.pwmPeltier.shift();
-                state.chartData.pwmFan.shift();
-                state.chartData.pwmCool.shift();
+            var temp = stateManager ? stateManager.get('temperature') : null;
+            var hum = stateManager ? stateManager.get('humidity') : null;
+            var nh3 = stateManager ? stateManager.get('nh3') : null;
+            var peltierPwm = stateManager ? stateManager.get('peltierPwm') || 0 : 0;
+            var fanPwm = stateManager ? stateManager.get('fanPwm') || 0 : 0;
+            var coolFanPwm = stateManager ? stateManager.get('coolFanPwm') || 0 : 0;
+
+            chartData.labels.push(now);
+            chartData.temp.push(safeNumber(temp, 0));
+            chartData.hum.push(safeNumber(hum, 0));
+            chartData.nh3.push(safeNumber(nh3, 0));
+            chartData.pwmPeltier.push(peltierPwm);
+            chartData.pwmFan.push(fanPwm);
+            chartData.pwmCool.push(coolFanPwm);
+
+            if (chartData.labels.length > maxPoints) {
+                chartData.labels.shift();
+                chartData.temp.shift();
+                chartData.hum.shift();
+                chartData.nh3.shift();
+                chartData.pwmPeltier.shift();
+                chartData.pwmFan.shift();
+                chartData.pwmCool.shift();
             }
 
-            chart.data.labels = state.chartData.labels;
-            chart.data.datasets[0].data = state.chartData.temp;
-            chart.data.datasets[1].data = state.chartData.hum;
-            chart.data.datasets[2].data = state.chartData.nh3;
-            chart.data.datasets[3].data = state.chartData.pwmPeltier;
-            chart.data.datasets[4].data = state.chartData.pwmFan;
-            chart.data.datasets[5].data = state.chartData.pwmCool;
+            chart.data.labels = chartData.labels;
+            chart.data.datasets[0].data = chartData.temp;
+            chart.data.datasets[1].data = chartData.hum;
+            chart.data.datasets[2].data = chartData.nh3;
+            chart.data.datasets[3].data = chartData.pwmPeltier;
+            chart.data.datasets[4].data = chartData.pwmFan;
+            chart.data.datasets[5].data = chartData.pwmCool;
             chart.update('none');
         }
 
         // =============================================================
-        // 12. SPREADSHEET
+        // 9. CLOCK & SIDEBAR
         // =============================================================
-        function logToSpreadsheet(data) {
-            if (!CONFIG.SPREADSHEET_API || CONFIG.SPREADSHEET_API.includes('YOUR_DEPLOYMENT_ID')) {
-                return;
-            }
-            fetch(CONFIG.SPREADSHEET_API, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    temperature: data.temp || state.temp,
-                    humidity: data.hum || state.hum,
-                    nh3: data.nh3 || state.nh3,
-                    peltierPwm: data.peltierPwm || state.peltierPwm,
-                    fanPwm: data.fanPwm || state.fanPwm,
-                    coolFanPwm: data.coolFanPwm || state.coolFanPwm,
-                    kp: data.kp || state.kp,
-                    ki: data.ki || state.ki,
-                    kd: data.kd || state.kd,
-                    mode: data.mode || state.mode,
-                    alarm: state.alarms.filter(function(a) { return a.active; }).map(function(a) { return a.message; })
-                        .join(',') || 'Normal',
-                    status: state.health > 80 ? 'Normal' : state.health > 60 ? 'Warning' : 'Danger',
-                })
-            }).catch(function(e) { console.error('Spreadsheet error:', e); });
+        function updateClock() {
+            document.getElementById('clock').textContent = formatTime();
         }
+        setInterval(updateClock, 1000);
+        updateClock();
 
-        // Auto log every 30 seconds
-        setInterval(function() {
-            logToSpreadsheet({});
-        }, CONFIG.INTERVAL_LOG);
-
-        // First log after 5 seconds
-        setTimeout(function() {
-            logToSpreadsheet({});
-        }, 5000);
-
-        // =============================================================
-        // 13. TELEGRAM NOTIFICATION
-        // =============================================================
-        function sendTelegram(message) {
-            if (!CONFIG.TELEGRAM_BOT_TOKEN || CONFIG.TELEGRAM_BOT_TOKEN.includes('YOUR_BOT_TOKEN')) return;
-            var url = 'https://api.telegram.org/bot' + CONFIG.TELEGRAM_BOT_TOKEN + '/sendMessage';
-            fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    chat_id: CONFIG.TELEGRAM_CHAT_ID,
-                    text: '🔔 *IoT Kandang Ulat*\n' + message + '\n' + formatTime(),
-                    parse_mode: 'Markdown',
-                })
-            }).catch(function(e) { console.error('Telegram error:', e); });
-        }
-
-        // Monitor alarm to send Telegram
-        var lastAlarmSent = {};
-        setInterval(function() {
-            var activeAlarms = state.alarms.filter(function(a) { return a.active; });
-            for (var i = 0; i < activeAlarms.length; i++) {
-                var key = activeAlarms[i].message;
-                if (!lastAlarmSent[key] || Date.now() - lastAlarmSent[key] > 60000) {
-                    sendTelegram('⚠️ ALARM: ' + key);
-                    lastAlarmSent[key] = Date.now();
-                    addNotification('Telegram: ' + key, 'warning');
-                }
+        document.getElementById('menuToggle').addEventListener('click', function() {
+            document.getElementById('sidebar').classList.toggle('open');
+        });
+        document.addEventListener('click', function(e) {
+            var sidebar = document.getElementById('sidebar');
+            var toggle = document.getElementById('menuToggle');
+            if (window.innerWidth <= 1024 && !sidebar.contains(e.target) && !toggle.contains(e.target)) {
+                sidebar.classList.remove('open');
             }
-        }, 30000);
+        });
 
         // =============================================================
-        // 14. CHART RANGE BUTTONS
+        // 10. CHART RANGE BUTTONS
         // =============================================================
         document.querySelectorAll('[data-range]').forEach(function(btn) {
             btn.addEventListener('click', function() {
                 document.querySelectorAll('[data-range]').forEach(function(b) { b.classList.remove('active'); });
                 this.classList.add('active');
-                var range = this.dataset.range;
-                showToast('Menampilkan ' + range, 'info');
+                showToast('Menampilkan ' + this.dataset.range, 'info');
             });
         });
 
         // =============================================================
-        // 15. MODAL
+        // 11. MODAL
         // =============================================================
         var modalCallback = null;
 
@@ -2365,75 +2122,117 @@
         });
 
         // =============================================================
-        // 16. INIT
+        // 12. INITIALIZATION
         // =============================================================
         function init() {
             if (initialized) return;
             initialized = true;
 
-            state.temp = null;
-            state.hum = null;
-            state.nh3 = null;
-            state.peltierPwm = 0;
-            state.fanPwm = 0;
-            state.coolFanPwm = 0;
-            state.health = 97;
+            // Tunggu Core siap
+            if (typeof Core === 'undefined' || !Core.initialized) {
+                setTimeout(init, 500);
+                return;
+            }
 
-            updateAllUI();
-            setTimeout(updateGauges, 100);
+            // Ambil referensi dari Core
+            stateManager = Core.getStateManager ? Core.getStateManager() : null;
+            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
+            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
 
-            connectMQTT();
+            if (!stateManager) {
+                console.warn('StateManager tidak tersedia, gunakan fallback');
+                // Fallback: buat state sederhana
+                stateManager = {
+                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
+                    set: function(key, value) {
+                        window.__fallbackState = window.__fallbackState || {};
+                        window.__fallbackState[key] = value;
+                    },
+                    addListener: function() {}
+                };
+                window.__fallbackState = {};
+            }
+
+            // Inisialisasi Core dengan konfigurasi
+            if (typeof Core.init === 'function' && !Core.initialized) {
+                Core.init({
+                    config: {
+                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
+                    },
+                    telegram: {
+                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
+                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
+                    }
+                });
+            }
+
+            // Subscribe ke perubahan state via StateManager
+            if (stateManager && typeof stateManager.addListener === 'function') {
+                stateManager.addListener('*', function(key, value, oldValue) {
+                    updateAllUI();
+                });
+            }
+
+            // Gunakan SyncModule untuk sinkronisasi antar user
+            if (syncModule && typeof syncModule.subscribeState === 'function') {
+                syncModule.subscribeState(mqttManager);
+                syncModule.setOnStateChange(function(state) {
+                    updateAllUI();
+                });
+            }
+
+            // Inisialisasi chart
             initChart();
 
-            addNotification('Menunggu data dari ESP32...', 'info');
-            addLog('Sistem menunggu koneksi MQTT');
+            // Update UI pertama kali
+            updateAllUI();
+            setTimeout(updateGauges, 200);
 
+            // Sembunyikan loading
             var loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
                 setTimeout(function() { loadingScreen.classList.add('hide'); }, 800);
             }
 
+            // Update status periodik
             setInterval(function() {
-                if (!state.mqttConnected && mqttClient) {
-                    try { mqttClient.reconnect(); } catch (e) {}
-                }
                 updateStatusIndicators();
             }, 10000);
 
+            // Periodik update chart
             setInterval(function() {
-                if (state.mqttConnected && mqttClient) {
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
-                        dashboard: 'online',
-                        timestamp: new Date().toISOString(),
-                        health: state.health,
-                    }));
-                }
-            }, 15000);
+                updateChartData();
+            }, 2000);
+
+            addNotification('Dashboard siap dengan Core System', 'success');
+            addLog('Sistem dimulai (Core v3.0)');
+
+            console.log('🐛 Dashboard menggunakan Core System v3.0');
+            console.log('📊 StateManager:', stateManager);
+            console.log('📡 MqttManager:', mqttManager);
         }
 
-        // Run when DOM ready
+        // =============================================================
+        // 13. START
+        // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            init();
+            // Tunggu Core selesai init
+            setTimeout(init, 300);
         }
 
-        // =============================================================
-        // 17. EXPOSE TO GLOBAL (debugging)
-        // =============================================================
-        window.__state = state;
-        window.__config = CONFIG;
+        // Ekspos untuk debugging
+        window.__stateManager = stateManager;
+        window.__mqttManager = mqttManager;
+        window.__syncModule = syncModule;
         window.__showToast = showToast;
-        window.__sendTelegram = sendTelegram;
-        window.__logToSheet = logToSpreadsheet;
-        window.__showModal = showModal;
-        window.__publishControl = publishControl;
+        window.__addNotification = addNotification;
+        window.__addLog = addLog;
+        window.__addAlarm = addAlarm;
 
-        console.log('🐛 IoT Kandang Ulat Dashboard v2.0.0 (MQTT Direct)');
-        console.log('📡 MQTT Broker:', CONFIG.MQTT_BROKER);
-        console.log('📊 State:', state);
-        console.log('💡 Gunakan window.__state untuk debugging');
-        console.log('💬 showToast(), sendTelegram(), logToSheet(), showModal(), publishControl()');
+        console.log('🐛 Dashboard siap, menunggu Core System...');
     </script>
+
 </body>
 </html>

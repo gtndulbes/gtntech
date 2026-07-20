@@ -1,188 +1,83 @@
 // ============================================================
-// MQTT Configuration - IoT Kandang Ulat Hongkong
+// MQTT Configuration - Legacy / Compatibility Layer
+// ============================================================
+// File ini hanya sebagai proxy untuk mengakses konfigurasi dan
+// manager dari core.js. Semua logika ada di core.js.
 // ============================================================
 
-const MQTT_CONFIG = {
-    BROKER: 'wss://broker.emqx.io:8084/mqtt', // atau gunakan broker Anda
-    OPTIONS: {
-        clientId: 'dashboard_' + Math.random().toString(16).substr(2, 8),
-        clean: true,
-        reconnectPeriod: 3000,
-        connectTimeout: 5000
-    },
-    TOPICS: {
-        SENSOR_SHT31: 'sensor/sht31',
-        SENSOR_MQ135: 'sensor/mq135',
-        SENSOR_STATUS: 'sensor/status',
-        ACTUATOR_STATUS: 'actuator/status',
-        ACTUATOR_CONTROL: 'actuator/control',
-        SYSTEM_CONTROL: 'system/control',
-        SYSTEM_ALARM: 'system/alarm',
-        SELF_MONITOR: 'system/selfmonitor',
-        SETTING_UPDATE: 'setting/update',
-        SYSTEM_STATE: 'system/state'
-    },
-    // Untuk debug
-    DEBUG: true,
-};
+(function(global) {
+    'use strict';
 
-// ============================================================
-// MQTT Client Wrapper
-// ============================================================
-class MqttManager {
-    constructor(config) {
-        this.config = config;
-        this.client = null;
-        this.connected = false;
-        this.messageHandlers = {};
-        this.statusCallbacks = [];
-        this.reconnectTimer = null;
-        this.pendingSubscriptions = [];
+    // Jika core.js sudah dimuat, kita gunakan referensi dari sana
+    if (global.Core && global.Core.getConfig && global.Core.getMqttManager) {
+        var config = global.Core.getConfig();
+        var mqttMgr = global.Core.getMqttManager();
+
+        // Ekspos dengan nama yang sama seperti sebelumnya
+        global.MQTT_CONFIG = {
+            BROKER: config.MQTT_BROKER,
+            OPTIONS: config.MQTT_OPTIONS,
+            TOPICS: config.MQTT_TOPICS,
+            DEBUG: config.DEBUG || true,
+        };
+
+        // Ekspos mqttManager sebagai wrapper (agar bisa pakai on/publish/subscribe)
+        global.mqttManager = {
+            connect: function() { return mqttMgr.connect(); },
+            disconnect: function() { return mqttMgr.disconnect(); },
+            publish: function(topic, data, options) {
+                var payload = typeof data === 'string' ? data : JSON.stringify(data);
+                return mqttMgr.publish(topic, payload, options);
+            },
+            subscribe: function(topic, callback) { return mqttMgr.subscribe(topic, callback); },
+            unsubscribe: function(topic, callback) { return mqttMgr.unsubscribe(topic, callback); },
+            on: function(topic, callback) { return mqttMgr.subscribe(topic, callback); },
+            onStatusChange: function(callback) { return mqttMgr.subscribeSystem(callback); },
+            get connected() { return mqttMgr.isConnected; },
+            get status() { return mqttMgr.getStatus(); },
+        };
+
+        console.log('[mqtt-config] Using core.js as single source of truth');
+        return;
     }
 
-    // Inisialisasi koneksi
-    connect() {
-        if (this.client && this.connected) return;
-        try {
-            this.client = mqtt.connect(this.config.BROKER, this.config.OPTIONS);
-            this.client.on('connect', () => {
-                this.connected = true;
-                this.log('MQTT Connected');
-                this.triggerStatusCallbacks(true);
-                // Subscribe ke semua topic yang dibutuhkan
-                const topics = Object.values(this.config.TOPICS);
-                topics.forEach(topic => {
-                    this.client.subscribe(topic, (err) => {
-                        if (err) this.log('Subscribe error: ' + topic, err);
-                        else this.log('Subscribed to: ' + topic);
-                    });
-                });
-                this.pendingSubscriptions.slice().forEach(topic => {
-                    this.client.subscribe(topic, (err) => {
-                        if (err) this.log('Subscribe error: ' + topic, err);
-                        else this.log('Subscribed to: ' + topic);
-                    });
-                });
-                this.pendingSubscriptions = [];
-                // Kirim status online
-                this.publish(this.config.TOPICS.SENSOR_STATUS, {
-                    dashboard: 'online',
-                    timestamp: new Date().toISOString()
-                });
-            });
+    // Jika core.js belum dimuat, kita buat sendiri (fallback minimal)
+    console.warn('[mqtt-config] core.js not loaded, using fallback config');
 
-            this.client.on('message', (topic, payload) => {
-                try {
-                    const data = JSON.parse(payload.toString());
-                    this.handleMessage(topic, data);
-                } catch (e) {
-                    // payload bukan JSON
-                    this.log('Raw message: ' + topic + ' => ' + payload.toString());
-                }
-            });
+    global.MQTT_CONFIG = {
+        BROKER: 'wss://broker.emqx.io:8084/mqtt',
+        OPTIONS: {
+            clientId: 'dashboard_' + Math.random().toString(16).substr(2, 8),
+            clean: true,
+            reconnectPeriod: 3000,
+            connectTimeout: 5000
+        },
+        TOPICS: {
+            SENSOR_SHT31: 'sensor/sht31',
+            SENSOR_MQ135: 'sensor/mq135',
+            SENSOR_STATUS: 'sensor/status',
+            ACTUATOR_STATUS: 'actuator/status',
+            ACTUATOR_CONTROL: 'actuator/control',
+            SYSTEM_CONTROL: 'system/control',
+            SYSTEM_ALARM: 'system/alarm',
+            SELF_MONITOR: 'system/selfmonitor',
+            SETTING_UPDATE: 'setting/update',
+            SYSTEM_STATE: 'system/state'
+        },
+        DEBUG: true,
+    };
 
-            this.client.on('close', () => {
-                this.connected = false;
-                this.log('MQTT Disconnected');
-                this.triggerStatusCallbacks(false);
-            });
+    // Fallback mqttManager minimal (hanya agar tidak error)
+    global.mqttManager = {
+        connected: false,
+        connect: function() { console.warn('[mqttManager] Not connected (fallback)'); },
+        disconnect: function() {},
+        publish: function() { return false; },
+        subscribe: function() {},
+        unsubscribe: function() {},
+        on: function() {},
+        onStatusChange: function() {},
+        get status() { return { connected: false }; },
+    };
 
-            this.client.on('error', (err) => {
-                this.log('MQTT Error:', err);
-                this.connected = false;
-                this.triggerStatusCallbacks(false);
-            });
-
-            this.client.on('reconnect', () => {
-                this.log('MQTT Reconnecting...');
-            });
-
-        } catch (e) {
-            this.log('MQTT Init Error:', e);
-        }
-    }
-
-    // Register handler untuk topic tertentu
-    on(topic, callback) {
-        if (!this.messageHandlers[topic]) {
-            this.messageHandlers[topic] = [];
-        }
-        this.messageHandlers[topic].push(callback);
-    }
-
-    // Handle incoming message
-    handleMessage(topic, data) {
-        this.log('Message: ' + topic, data);
-        // Panggil handler spesifik topic
-        if (this.messageHandlers[topic]) {
-            this.messageHandlers[topic].forEach(cb => cb(data, topic));
-        }
-        // Panggil handler wildcard (untuk semua topic)
-        if (this.messageHandlers['*']) {
-            this.messageHandlers['*'].forEach(cb => cb(data, topic));
-        }
-    }
-
-    // Publish data
-    publish(topic, data, options) {
-        if (!this.connected) {
-            this.log('Cannot publish, not connected');
-            return false;
-        }
-        const payload = typeof data === 'string' ? data : JSON.stringify(data);
-        this.client.publish(topic, payload, options || { qos: 0, retain: false });
-        return true;
-    }
-
-    // Subscribe tambahan
-    subscribe(topic, callback) {
-        if (!this.client) {
-            this.pendingSubscriptions.push(topic);
-            if (callback) this.on(topic, callback);
-            return;
-        }
-        if (!this.connected) {
-            this.pendingSubscriptions.push(topic);
-            if (callback) this.on(topic, callback);
-            return;
-        }
-        this.client.subscribe(topic, (err) => {
-            if (!err && callback) {
-                this.on(topic, callback);
-            }
-        });
-    }
-
-    // Status change callback
-    onStatusChange(callback) {
-        this.statusCallbacks.push(callback);
-    }
-
-    triggerStatusCallbacks(connected) {
-        this.statusCallbacks.forEach(cb => cb(connected));
-    }
-
-    // Disconnect
-    disconnect() {
-        if (this.client) {
-            this.client.end();
-            this.connected = false;
-        }
-    }
-
-    // Logging
-    log(...args) {
-        if (this.config.DEBUG) {
-            console.log('[MQTT]', ...args);
-        }
-    }
-}
-
-// ============================================================
-// Inisialisasi instance global
-// ============================================================
-const mqttManager = new MqttManager(MQTT_CONFIG);
-if (typeof window !== 'undefined') {
-    window.mqttManager = mqttManager;
-    window.MQTT_CONFIG = MQTT_CONFIG;
-}
+})(window);

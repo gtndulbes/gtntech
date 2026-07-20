@@ -15,6 +15,7 @@
     // ================================================================
     // 1. KONFIGURASI DASAR
     // ================================================================
+
     var CONFIG = {
         MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
         MQTT_OPTIONS: {
@@ -60,7 +61,7 @@
             // Telegram
             TELEGRAM_LOG: 'telegram/log'
         },
-        SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzbndPNy1970Id-boAcqgr9QC12BexNdGb5_xuqCZQ6wxpxTxWfNjKEYgRHtHIZ2eocqw/exec', // 
+        SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzbndPNy1970Id-boAcqgr9QC12BexNdGb5_xuqCZQ6wxpxTxWfNjKEYgRHtHIZ2eocqw/exec',
         PUBLISH_INTERVAL: 2000,
         HEARTBEAT_INTERVAL: 10000,
         SPREADSHEET_HEALTH_INTERVAL: 30000,
@@ -68,7 +69,8 @@
         STATE_SYNC_INTERVAL: 2000,
         MAX_RECONNECT_ATTEMPTS: 10,
         RECONNECT_BASE_DELAY: 1000,
-        MAX_OFFLINE_QUEUE: 100
+        MAX_OFFLINE_QUEUE: 100,
+        DEBUG: true,
     };
 
     // ================================================================
@@ -184,14 +186,15 @@
         isProcessingQueue: false,
         subscribers: [],
         messageHandlers: {},
+        debug: CONFIG.DEBUG,
 
         // --- Init ---
         init: function() {
             if (this.client) {
-                console.warn('[MQTT] Already initialized');
+                this.log('Already initialized');
                 return;
             }
-            console.log('[MQTT] Initializing...');
+            this.log('Initializing...');
             this.connect();
             this.setupHeartbeat();
             this.setupStateSync();
@@ -200,16 +203,16 @@
         // --- Connect ---
         connect: function() {
             if (this.isConnecting) {
-                console.log('[MQTT] Already connecting...');
+                this.log('Already connecting...');
                 return;
             }
             if (this.client && this.isConnected) {
-                console.log('[MQTT] Already connected');
+                this.log('Already connected');
                 return;
             }
 
             this.isConnecting = true;
-            console.log('[MQTT] Connecting to:', CONFIG.MQTT_BROKER);
+            this.log('Connecting to:', CONFIG.MQTT_BROKER);
 
             try {
                 var options = Object.assign({}, CONFIG.MQTT_OPTIONS);
@@ -223,11 +226,9 @@
                 this.client.on('offline', this.onOffline.bind(this));
                 this.client.on('error', this.onError.bind(this));
                 this.client.on('message', this.onMessage.bind(this));
-                this.client.on('packetsend', this.onPacketSend.bind(this));
-                this.client.on('packetreceive', this.onPacketReceive.bind(this));
 
             } catch (error) {
-                console.error('[MQTT] Connection error:', error);
+                this.log('Connection error:', error);
                 this.isConnecting = false;
                 this.scheduleReconnect();
             }
@@ -239,14 +240,14 @@
                 try {
                     this.client.end(true);
                 } catch (e) {
-                    console.warn('[MQTT] Disconnect error:', e);
+                    this.log('Disconnect error:', e);
                 }
                 this.client = null;
             }
             this.isConnected = false;
             this.isConnecting = false;
             this.updateStatus();
-            console.log('[MQTT] Disconnected');
+            this.log('Disconnected');
         },
 
         // --- Reconnect with Exponential Backoff ---
@@ -257,17 +258,16 @@
             }
 
             if (this.reconnectAttempts >= CONFIG.MAX_RECONNECT_ATTEMPTS) {
-                console.error('[MQTT] Max reconnect attempts reached, giving up');
+                this.log('Max reconnect attempts reached, giving up');
                 State.mqttStatus = 'offline';
                 this.updateStatus();
                 return;
             }
 
             var delay = CONFIG.RECONNECT_BASE_DELAY * Math.pow(1.5, this.reconnectAttempts);
-            delay = Math.min(delay, 60000); // Max 60 seconds
+            delay = Math.min(delay, 60000);
 
-            console.log('[MQTT] Scheduling reconnect in', delay / 1000, 'seconds (attempt', this.reconnectAttempts + 1,
-                ')');
+            this.log('Scheduling reconnect in', delay / 1000, 'seconds (attempt', this.reconnectAttempts + 1, ')');
 
             this.reconnectTimer = setTimeout(function() {
                 this.reconnectAttempts++;
@@ -289,11 +289,10 @@
                         timestamp: new Date().toISOString(),
                         status: 'online',
                         uptime: Math.floor(performance.now() / 1000),
-                        freeHeap: 0, // Will be filled by ESP32
                         clientId: CONFIG.MQTT_OPTIONS.clientId,
                     };
                     this.publish(CONFIG.MQTT_TOPICS.SYSTEM_HEARTBEAT, JSON.stringify(heartbeat), { qos: 1, retain: false });
-                    console.log('[MQTT] Heartbeat sent');
+                    this.log('Heartbeat sent');
                 }
             }.bind(this), CONFIG.MQTT_HEARTBEAT_INTERVAL);
         },
@@ -326,7 +325,7 @@
             if (this.isConnected && this.client) {
                 this.client.publish(topic, message, options, function(err) {
                     if (err) {
-                        console.warn('[MQTT] Publish error:', err);
+                        this.log('Publish error:', err);
                         this.queueMessage(topic, message, options);
                     }
                 }.bind(this));
@@ -348,7 +347,7 @@
                 options: options,
                 timestamp: Date.now()
             });
-            console.log('[MQTT] Queued message (queue size:', this.offlineQueue.length, ')');
+            this.log('Queued message (queue size:', this.offlineQueue.length, ')');
             this.processQueue();
         },
 
@@ -359,7 +358,7 @@
             }
 
             this.isProcessingQueue = true;
-            console.log('[MQTT] Processing offline queue (', this.offlineQueue.length, 'messages)');
+            this.log('Processing offline queue (', this.offlineQueue.length, 'messages)');
 
             var batch = this.offlineQueue.splice(0, 10);
             var processed = 0;
@@ -368,7 +367,7 @@
                 if (this.client) {
                     this.client.publish(msg.topic, msg.message, msg.options, function(err) {
                         if (err) {
-                            console.warn('[MQTT] Queue publish error:', err);
+                            this.log('Queue publish error:', err);
                             this.offlineQueue.push(msg);
                         } else {
                             processed++;
@@ -388,7 +387,7 @@
             }
 
             if (processed > 0) {
-                console.log('[MQTT] Processed', processed, 'queued messages');
+                this.log('Processed', processed, 'queued messages');
             }
         },
 
@@ -402,16 +401,18 @@
                 if (!this.messageHandlers[t]) {
                     this.messageHandlers[t] = [];
                 }
-                this.messageHandlers[t].push(callback);
+                if (callback) {
+                    this.messageHandlers[t].push(callback);
+                }
 
                 if (this.isConnected && this.client) {
                     this.client.subscribe(t, { qos: 1 }, function(err) {
                         if (err) {
-                            console.warn('[MQTT] Subscribe error for', t, ':', err);
+                            this.log('Subscribe error for', t, ':', err);
                         } else {
-                            console.log('[MQTT] Subscribed to:', t);
+                            this.log('Subscribed to:', t);
                         }
-                    });
+                    }.bind(this));
                 }
             }.bind(this));
         },
@@ -437,9 +438,9 @@
                 if (this.isConnected && this.client) {
                     this.client.unsubscribe(t, function(err) {
                         if (err) {
-                            console.warn('[MQTT] Unsubscribe error for', t, ':', err);
+                            this.log('Unsubscribe error for', t, ':', err);
                         }
-                    });
+                    }.bind(this));
                 }
             }.bind(this));
         },
@@ -452,31 +453,28 @@
             State.mqttStatus = 'online';
             State.isMqttConnected = true;
 
-            console.log('[MQTT] Connected successfully');
+            this.log('Connected successfully');
 
             // Resubscribe to all topics
             var topics = Object.keys(this.messageHandlers);
             if (topics.length > 0) {
                 this.client.subscribe(topics, { qos: 1 }, function(err) {
                     if (err) {
-                        console.warn('[MQTT] Resubscribe error:', err);
+                        this.log('Resubscribe error:', err);
                     } else {
-                        console.log('[MQTT] Resubscribed to', topics.length, 'topics');
+                        this.log('Resubscribed to', topics.length, 'topics');
                     }
-                });
+                }.bind(this));
             }
 
-            // Process offline queue
             this.processQueue();
 
-            // Publish online status
             this.publish(CONFIG.MQTT_TOPICS.SYSTEM_STATUS, JSON.stringify({
                 status: 'online',
                 timestamp: new Date().toISOString(),
                 clientId: CONFIG.MQTT_OPTIONS.clientId,
             }), { qos: 1, retain: true });
 
-            // Publish current state
             this.publishState();
 
             this.updateStatus();
@@ -484,13 +482,13 @@
         },
 
         onReconnect: function() {
-            console.log('[MQTT] Reconnecting...');
+            this.log('Reconnecting...');
             this.isConnecting = true;
             this.notifySubscribers('reconnect', { attempt: this.reconnectAttempts });
         },
 
         onClose: function() {
-            console.log('[MQTT] Connection closed');
+            this.log('Connection closed');
             this.isConnected = false;
             this.isConnecting = false;
             State.mqttStatus = 'offline';
@@ -501,7 +499,7 @@
         },
 
         onOffline: function() {
-            console.warn('[MQTT] Offline');
+            this.log('Offline');
             this.isConnected = false;
             State.mqttStatus = 'offline';
             State.isMqttConnected = false;
@@ -510,7 +508,7 @@
         },
 
         onError: function(error) {
-            console.error('[MQTT] Error:', error);
+            this.log('Error:', error);
             State.mqttStatus = 'error';
             this.updateStatus();
             this.notifySubscribers('error', { error: error });
@@ -521,34 +519,23 @@
                 var payload = message.toString();
                 var data = JSON.parse(payload);
 
-                // Update state based on topic
                 StateManager.handleMqttMessage(topic, data);
 
-                // Notify handlers
                 if (this.messageHandlers[topic]) {
                     this.messageHandlers[topic].forEach(function(handler) {
                         try {
                             handler(data, topic);
                         } catch (e) {
-                            console.error('[MQTT] Handler error for', topic, ':', e);
+                            this.log('Handler error for', topic, ':', e);
                         }
-                    });
+                    }.bind(this));
                 }
 
-                // Notify generic subscribers
                 this.notifySubscribers('message', { topic: topic, data: data });
 
             } catch (error) {
-                console.warn('[MQTT] Message parse error for', topic, ':', error);
+                this.log('Message parse error for', topic, ':', error);
             }
-        },
-
-        onPacketSend: function(packet) {
-            // Silently track sends
-        },
-
-        onPacketReceive: function(packet) {
-            // Silently track receives
         },
 
         // --- Update Status ---
@@ -580,9 +567,9 @@
                 try {
                     callback(event, data);
                 } catch (e) {
-                    console.error('[MQTT] Subscriber error:', e);
+                    this.log('Subscriber error:', e);
                 }
-            });
+            }.bind(this));
         },
 
         // --- Get Status ---
@@ -595,6 +582,15 @@
                 offlineQueueSize: this.offlineQueue.length,
                 messageHandlers: Object.keys(this.messageHandlers).length,
             };
+        },
+
+        // --- Logging ---
+        log: function() {
+            if (this.debug) {
+                var args = Array.prototype.slice.call(arguments);
+                args.unshift('[MQTT]');
+                console.log.apply(console, args);
+            }
         },
     };
 
@@ -723,7 +719,6 @@
                 }
             }
 
-            // Process next batch
             setTimeout(function() {
                 this.processUpdates();
             }.bind(this), 10);
@@ -776,7 +771,6 @@
                     break;
 
                 case CONFIG.MQTT_TOPICS.SYSTEM_STATE:
-                    // State sync from other clients
                     this.syncState(data);
                     break;
 
@@ -824,7 +818,6 @@
                     break;
             }
 
-            // Apply updates
             if (Object.keys(updates).length > 0) {
                 this.update(updates, { publish: false, sync: false, silent: true });
             }
@@ -886,7 +879,6 @@
                 });
             }
 
-            // Wildcard listeners
             if (this.listeners['*']) {
                 this.listeners['*'].forEach(function(callback) {
                     try {
@@ -919,10 +911,11 @@
         checkTimer: null,
         retryCount: 0,
         maxRetries: 3,
+        debug: CONFIG.DEBUG,
 
         // --- Init ---
         init: function() {
-            console.log('[Spreadsheet] Initializing...');
+            this.log('Initializing...');
             this.healthCheck();
             this.setupHealthCheck();
         },
@@ -935,7 +928,7 @@
             var apiUrl = CONFIG.SPREADSHEET_API || '';
 
             if (!apiUrl || apiUrl.includes('YOUR_DEPLOYMENT_ID')) {
-                console.warn('[Spreadsheet] API URL not configured');
+                this.log('API URL not configured');
                 this.isConnected = false;
                 State.spreadsheetStatus = 'error';
                 State.isSpreadsheetConnected = false;
@@ -962,13 +955,13 @@
                     this.retryCount = 0;
                     State.spreadsheetStatus = 'online';
                     State.isSpreadsheetConnected = true;
-                    console.log('[Spreadsheet] Health check OK');
+                    this.log('Health check OK');
                 } else {
                     throw new Error('Invalid response');
                 }
             }.bind(this))
             .catch(function(error) {
-                console.warn('[Spreadsheet] Health check failed:', error);
+                this.log('Health check failed:', error);
                 this.isConnected = false;
                 State.spreadsheetStatus = 'offline';
                 State.isSpreadsheetConnected = false;
@@ -1004,7 +997,7 @@
             var apiUrl = CONFIG.SPREADSHEET_API;
 
             if (!apiUrl || apiUrl.includes('YOUR_DEPLOYMENT_ID')) {
-                console.warn('[Spreadsheet] API URL not configured, data not logged');
+                this.log('API URL not configured, data not logged');
                 return;
             }
 
@@ -1032,8 +1025,8 @@
                 body: JSON.stringify(payload),
             })
             .catch(function(error) {
-                console.warn('[Spreadsheet] Log error:', error);
-            });
+                this.log('Log error:', error);
+            }.bind(this));
         },
 
         // --- Get History Data ---
@@ -1098,6 +1091,15 @@
                 retryCount: this.retryCount,
             };
         },
+
+        // --- Logging ---
+        log: function() {
+            if (this.debug) {
+                var args = Array.prototype.slice.call(arguments);
+                args.unshift('[Spreadsheet]');
+                console.log.apply(console, args);
+            }
+        },
     };
 
     // ================================================================
@@ -1111,8 +1113,9 @@
         queue: [],
         isProcessing: false,
         lastSent: null,
-        rateLimit: 5000, // 5 seconds between messages
+        rateLimit: 5000,
         maxRetries: 3,
+        debug: CONFIG.DEBUG,
 
         // --- Init ---
         init: function(token, chatId) {
@@ -1121,9 +1124,9 @@
             this.isEnabled = !!(this.botToken && this.chatId);
 
             if (this.isEnabled) {
-                console.log('[Telegram] Initialized');
+                this.log('Initialized');
             } else {
-                console.warn('[Telegram] Not configured');
+                this.log('Not configured');
             }
         },
 
@@ -1132,11 +1135,10 @@
             options = options || { priority: 'normal', retry: 0 };
 
             if (!this.isEnabled) {
-                console.warn('[Telegram] Not enabled');
+                this.log('Not enabled');
                 return;
             }
 
-            // Rate limiting
             if (this.lastSent && (Date.now() - this.lastSent) < this.rateLimit) {
                 var delay = this.rateLimit - (Date.now() - this.lastSent);
                 setTimeout(function() {
@@ -1167,14 +1169,14 @@
             .then(function(data) {
                 if (data && data.ok) {
                     this.lastSent = Date.now();
-                    console.log('[Telegram] Message sent:', message.substring(0, 50) + '...');
+                    this.log('Message sent:', message.substring(0, 50) + '...');
                     State.telegramLastSent = new Date();
                 } else {
                     throw new Error(data.description || 'Unknown error');
                 }
             }.bind(this))
             .catch(function(error) {
-                console.error('[Telegram] Send error:', error);
+                this.log('Send error:', error);
 
                 if (options.retry < this.maxRetries) {
                     options.retry++;
@@ -1182,7 +1184,6 @@
                         this.sendMessage(message, options);
                     }.bind(this), 2000 * options.retry);
                 } else {
-                    // Add to queue for later retry
                     this.queue.push({
                         message: message,
                         options: options,
@@ -1200,9 +1201,8 @@
             this.isProcessing = true;
             var msg = this.queue.shift();
 
-            // Check if too old (more than 1 hour)
             if ((Date.now() - msg.timestamp) > 3600000) {
-                console.log('[Telegram] Queue message expired, dropping');
+                this.log('Queue message expired, dropping');
                 this.isProcessing = false;
                 this.processQueue();
                 return;
@@ -1211,7 +1211,6 @@
             this.sendMessage(msg.message, msg.options);
             this.isProcessing = false;
 
-            // Process next after delay
             setTimeout(function() {
                 this.processQueue();
             }.bind(this), 1000);
@@ -1263,6 +1262,15 @@
                 lastSent: this.lastSent,
             };
         },
+
+        // --- Logging ---
+        log: function() {
+            if (this.debug) {
+                var args = Array.prototype.slice.call(arguments);
+                args.unshift('[Telegram]');
+                console.log.apply(console, args);
+            }
+        },
     };
 
     // ================================================================
@@ -1281,6 +1289,7 @@
             emergency: { times: 5, duration: 300, interval: 200 },
             test: { times: 2, duration: 100, interval: 100 },
         },
+        debug: CONFIG.DEBUG,
 
         // --- Play Pattern ---
         play: function(pattern, options) {
@@ -1303,7 +1312,6 @@
                     return;
                 }
 
-                // Trigger buzzer via MQTT
                 MqttManager.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
                     command: 'buzzer',
                     action: 'on',
@@ -1314,7 +1322,6 @@
 
                 if (count < times) {
                     this.patternTimer = setTimeout(function() {
-                        // Turn off
                         MqttManager.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
                             command: 'buzzer',
                             action: 'off',
@@ -1325,7 +1332,6 @@
                         }.bind(this), interval);
                     }.bind(this), duration);
                 } else {
-                    // Turn off after last beep
                     setTimeout(function() {
                         MqttManager.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
                             command: 'buzzer',
@@ -1393,6 +1399,15 @@
                 currentPattern: this.currentPattern,
             };
         },
+
+        // --- Logging ---
+        log: function() {
+            if (this.debug) {
+                var args = Array.prototype.slice.call(arguments);
+                args.unshift('[Buzzer]');
+                console.log.apply(console, args);
+            }
+        },
     };
 
     // ================================================================
@@ -1411,29 +1426,22 @@
 
             options = options || {};
 
-            // Merge config
             if (options.config) {
                 Object.assign(CONFIG, options.config);
             }
 
-            // Init MQTT
             MqttManager.init();
 
-            // Init Spreadsheet
             SpreadsheetManager.init();
 
-            // Init Telegram
             if (options.telegram) {
                 TelegramManager.init(options.telegram.token, options.telegram.chatId);
             }
 
-            // Init State
             StateManager.reset();
 
-            // Setup alarm monitoring
             this.setupAlarmMonitoring();
 
-            // Setup auto logging
             this.setupAutoLogging();
 
             this.initialized = true;
@@ -1456,20 +1464,16 @@
                     if (!lastAlarms[key] || (Date.now() - lastAlarms[key]) > 60000) {
                         lastAlarms[key] = Date.now();
 
-                        // Send Telegram
                         TelegramManager.sendAlarm(alarm.message, alarm.category || 'warning');
 
-                        // Play Buzzer
                         var pattern = alarm.category === 'critical' ? 'critical' :
                             alarm.category === 'emergency' ? 'emergency' : 'warning';
                         BuzzerManager.play(pattern);
 
-                        // Log to console
                         console.warn('[Alarm]', alarm.message);
                     }
                 });
 
-                // Clear old alarms
                 for (var key in lastAlarms) {
                     if (lastAlarms.hasOwnProperty(key)) {
                         var stillActive = activeAlarms.some(function(a) { return a.message === key; });
@@ -1529,7 +1533,7 @@
     };
 
     // ================================================================
-    // 9. EXPOSE TO GLOBAL
+    // 9. EXPOSE TO GLOBAL (cocok untuk kedua file)
     // ================================================================
 
     global.Core = Core;
@@ -1540,11 +1544,19 @@
     global.BuzzerManager = BuzzerManager;
     global.CONFIG = CONFIG;
 
+    // Alias untuk kompatibilitas dengan file mqtt-config.js
+    global.mqttManager = MqttManager;
+    global.MQTT_CONFIG = {
+        BROKER: CONFIG.MQTT_BROKER,
+        OPTIONS: CONFIG.MQTT_OPTIONS,
+        TOPICS: CONFIG.MQTT_TOPICS,
+        DEBUG: CONFIG.DEBUG,
+    };
+
     console.log('[Core] Module loaded successfully');
 
-    // Auto-init if DOM ready
+    // Auto-init jika DOM ready
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        // Wait for other scripts to load
         setTimeout(function() {
             if (!Core.initialized) {
                 Core.init();

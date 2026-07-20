@@ -58,7 +58,7 @@
             SELF_MONITOR: 'system/selfmonitor',
 
             // Telegram
-            TELEGRAM_LOG: 'telegram/log',
+            TELEGRAM_LOG: 'telegram/log'
         },
         SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzbndPNy1970Id-boAcqgr9QC12BexNdGb5_xuqCZQ6wxpxTxWfNjKEYgRHtHIZ2eocqw/exec', // 
         PUBLISH_INTERVAL: 2000,
@@ -68,7 +68,7 @@
         STATE_SYNC_INTERVAL: 2000,
         MAX_RECONNECT_ATTEMPTS: 10,
         RECONNECT_BASE_DELAY: 1000,
-        MAX_OFFLINE_QUEUE: 100,
+        MAX_OFFLINE_QUEUE: 100
     };
 
     // ================================================================

@@ -8,7 +8,7 @@ const MQTT_CONFIG = {
         clientId: 'dashboard_' + Math.random().toString(16).substr(2, 8),
         clean: true,
         reconnectPeriod: 3000,
-        connectTimeout: 5000,
+        connectTimeout: 5000
     },
     TOPICS: {
         SENSOR_SHT31: 'sensor/sht31',
@@ -20,7 +20,7 @@ const MQTT_CONFIG = {
         SYSTEM_ALARM: 'system/alarm',
         SELF_MONITOR: 'system/selfmonitor',
         SETTING_UPDATE: 'setting/update',
-        SYSTEM_STATE: 'system/state',
+        SYSTEM_STATE: 'system/state'
     },
     // Untuk debug
     DEBUG: true,

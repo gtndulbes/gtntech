@@ -900,206 +900,198 @@
     };
 
     // ================================================================
-    // 5. SPREADSHEET MANAGER
+    // 5. SPREADSHEET MANAGER (DIPERBAIKI)
     // ================================================================
 
     var SpreadsheetManager = {
-        isConnected: false,
-        isChecking: false,
-        healthCheckInterval: null,
-        lastHealthCheck: null,
-        checkTimer: null,
-        retryCount: 0,
-        maxRetries: 3,
-        debug: CONFIG.DEBUG,
+    isConnected: false,
+    isChecking: false,
+    healthCheckInterval: null,
+    lastHealthCheck: null,
+    checkTimer: null,
+    retryCount: 0,
+    maxRetries: 3,
+    isConfigured: false, // baru: cek apakah URL sudah diisi
 
-        // --- Init ---
-        init: function() {
-            this.log('Initializing...');
+    // --- Init ---
+    init: function() {
+        console.log('[Spreadsheet] Initializing...');
+        // Cek apakah API URL sudah dikonfigurasi (bukan placeholder)
+        var apiUrl = CONFIG.SPREADSHEET_API || '';
+        this.isConfigured = !!(apiUrl && !apiUrl.includes('YOUR_DEPLOYMENT_ID') && !apiUrl.includes('YOUR_'));
+        
+        if (!this.isConfigured) {
+        console.warn('[Spreadsheet] API URL not configured, health check disabled');
+        this.isConnected = false;
+        State.spreadsheetStatus = 'offline';
+        State.isSpreadsheetConnected = false;
+        this.updateStatus();
+        return;
+        }
+        
+        this.healthCheck();
+        this.setupHealthCheck();
+    },
+
+    // --- Health Check ---
+    healthCheck: function() {
+        if (this.isChecking) return;
+        // Jika tidak dikonfigurasi, langsung set offline
+        if (!this.isConfigured) {
+        this.isConnected = false;
+        State.spreadsheetStatus = 'offline';
+        State.isSpreadsheetConnected = false;
+        this.updateStatus();
+        return;
+        }
+        
+        this.isChecking = true;
+        var apiUrl = CONFIG.SPREADSHEET_API;
+
+        var url = apiUrl + '?action=healthCheck'; // perhatikan: action=healthCheck, bukan health
+        fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        timeout: 5000,
+        })
+        .then(function(response) {
+        if (response.ok) return response.json();
+        throw new Error('HTTP ' + response.status);
+        })
+        .then(function(data) {
+        if (data && data.success !== false) {
+            this.isConnected = true;
+            this.retryCount = 0;
+            State.spreadsheetStatus = 'online';
+            State.isSpreadsheetConnected = true;
+            console.log('[Spreadsheet] Health check OK');
+        } else {
+            throw new Error('Invalid response');
+        }
+        }.bind(this))
+        .catch(function(error) {
+        console.warn('[Spreadsheet] Health check failed:', error.message);
+        this.isConnected = false;
+        State.spreadsheetStatus = 'offline';
+        State.isSpreadsheetConnected = false;
+        this.retryCount++;
+        if (this.retryCount < this.maxRetries) {
+            setTimeout(function() {
             this.healthCheck();
-            this.setupHealthCheck();
-        },
+            }.bind(this), 5000 * this.retryCount);
+        }
+        }.bind(this))
+        .finally(function() {
+        this.isChecking = false;
+        this.lastHealthCheck = new Date();
+        this.updateStatus();
+        }.bind(this));
+    },
 
-        // --- Health Check ---
-        healthCheck: function() {
-            if (this.isChecking) return;
-            this.isChecking = true;
+    // --- Setup Health Check Interval ---
+    setupHealthCheck: function() {
+        if (this.healthCheckInterval) {
+        clearInterval(this.healthCheckInterval);
+        this.healthCheckInterval = null;
+        }
+        // Hanya jalankan jika sudah dikonfigurasi
+        if (!this.isConfigured) return;
+        this.healthCheckInterval = setInterval(function() {
+        this.healthCheck();
+        }.bind(this), CONFIG.SPREADSHEET_HEALTH_INTERVAL);
+    },
 
-            var apiUrl = CONFIG.SPREADSHEET_API || '';
+    // --- Log Data to Spreadsheet ---
+    logData: function(data) {
+        if (!this.isConfigured) {
+        console.warn('[Spreadsheet] Not configured, data not logged');
+        return;
+        }
+        var apiUrl = CONFIG.SPREADSHEET_API;
+        var payload = {
+        timestamp: new Date().toISOString(),
+        temperature: data.temperature || State.temperature || 0,
+        humidity: data.humidity || State.humidity || 0,
+        nh3: data.nh3 || State.nh3 || 0,
+        peltierPwm: data.peltierPwm || State.peltierPwm || 0,
+        fanPwm: data.fanPwm || State.fanPwm || 0,
+        coolFanPwm: data.coolFanPwm || State.coolFanPwm || 0,
+        kp: data.kp || State.kp || 0,
+        ki: data.ki || State.ki || 0,
+        kd: data.kd || State.kd || 0,
+        mode: data.mode || State.mode || 'AUTO',
+        alarm: State.alarms.filter(function(a) { return a.active; }).map(function(a) { return a.message; }).join(','),
+        status: State.health > 80 ? 'Normal' : State.health > 60 ? 'Warning' : 'Danger',
+        };
+        fetch(apiUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        })
+        .catch(function(error) {
+        console.warn('[Spreadsheet] Log error:', error);
+        });
+    },
 
-            if (!apiUrl || apiUrl.includes('YOUR_DEPLOYMENT_ID')) {
-                this.log('API URL not configured');
-                this.isConnected = false;
-                State.spreadsheetStatus = 'error';
-                State.isSpreadsheetConnected = false;
-                this.isChecking = false;
-                this.updateStatus();
-                return;
-            }
+    // --- Get History Data ---
+    getHistory: function(params) {
+        if (!this.isConfigured) {
+        return Promise.reject(new Error('API not configured'));
+        }
+        params = params || {};
+        var apiUrl = CONFIG.SPREADSHEET_API;
+        var url = apiUrl + '?action=getHistory';
+        if (params.limit) url += '&limit=' + params.limit;
+        if (params.from) url += '&from=' + params.from;
+        if (params.to) url += '&to=' + params.to;
+        return fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        })
+        .then(function(response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+        })
+        .then(function(data) {
+        if (data && data.success !== false) {
+            return data.data || [];
+        }
+        throw new Error('Invalid response');
+        });
+    },
 
-            var url = apiUrl + '?action=health';
-            fetch(url, {
-                method: 'GET',
-                headers: { 'Accept': 'application/json' },
-                timeout: 5000,
-            })
-            .then(function(response) {
-                if (response.ok) {
-                    return response.json();
-                }
-                throw new Error('HTTP ' + response.status);
-            })
-            .then(function(data) {
-                if (data && data.success !== false) {
-                    this.isConnected = true;
-                    this.retryCount = 0;
-                    State.spreadsheetStatus = 'online';
-                    State.isSpreadsheetConnected = true;
-                    this.log('Health check OK');
-                } else {
-                    throw new Error('Invalid response');
-                }
-            }.bind(this))
-            .catch(function(error) {
-                this.log('Health check failed:', error);
-                this.isConnected = false;
-                State.spreadsheetStatus = 'offline';
-                State.isSpreadsheetConnected = false;
-                this.retryCount++;
+    // --- Get Stats ---
+    getStats: function() {
+        if (!this.isConfigured) {
+        return Promise.reject(new Error('API not configured'));
+        }
+        var apiUrl = CONFIG.SPREADSHEET_API;
+        return fetch(apiUrl + '?action=getStats', {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        })
+        .then(function(response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+        });
+    },
 
-                if (this.retryCount < this.maxRetries) {
-                    setTimeout(function() {
-                        this.healthCheck();
-                    }.bind(this), 5000 * this.retryCount);
-                }
-            }.bind(this))
-            .finally(function() {
-                this.isChecking = false;
-                this.lastHealthCheck = new Date();
-                this.updateStatus();
-            }.bind(this));
-        },
+    // --- Update Status ---
+    updateStatus: function() {
+        State.spreadsheetStatus = this.isConnected ? 'online' : 'offline';
+        State.isSpreadsheetConnected = this.isConnected;
+    },
 
-        // --- Setup Health Check Interval ---
-        setupHealthCheck: function() {
-            if (this.healthCheckInterval) {
-                clearInterval(this.healthCheckInterval);
-                this.healthCheckInterval = null;
-            }
-
-            this.healthCheckInterval = setInterval(function() {
-                this.healthCheck();
-            }.bind(this), CONFIG.SPREADSHEET_HEALTH_INTERVAL);
-        },
-
-        // --- Log Data to Spreadsheet ---
-        logData: function(data) {
-            var apiUrl = CONFIG.SPREADSHEET_API;
-
-            if (!apiUrl || apiUrl.includes('YOUR_DEPLOYMENT_ID')) {
-                this.log('API URL not configured, data not logged');
-                return;
-            }
-
-            var payload = {
-                timestamp: new Date().toISOString(),
-                temperature: data.temperature || State.temperature || 0,
-                humidity: data.humidity || State.humidity || 0,
-                nh3: data.nh3 || State.nh3 || 0,
-                peltierPwm: data.peltierPwm || State.peltierPwm || 0,
-                fanPwm: data.fanPwm || State.fanPwm || 0,
-                coolFanPwm: data.coolFanPwm || State.coolFanPwm || 0,
-                kp: data.kp || State.kp || 0,
-                ki: data.ki || State.ki || 0,
-                kd: data.kd || State.kd || 0,
-                mode: data.mode || State.mode || 'AUTO',
-                alarm: State.alarms.filter(function(a) { return a.active; }).map(function(a) { return a.message; }).join(
-                ','),
-                status: State.health > 80 ? 'Normal' : State.health > 60 ? 'Warning' : 'Danger',
-            };
-
-            fetch(apiUrl, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            })
-            .catch(function(error) {
-                this.log('Log error:', error);
-            }.bind(this));
-        },
-
-        // --- Get History Data ---
-        getHistory: function(params) {
-            params = params || {};
-            var apiUrl = CONFIG.SPREADSHEET_API;
-
-            if (!apiUrl || apiUrl.includes('YOUR_DEPLOYMENT_ID')) {
-                return Promise.reject(new Error('API not configured'));
-            }
-
-            var url = apiUrl + '?action=getHistory';
-            if (params.limit) url += '&limit=' + params.limit;
-            if (params.from) url += '&from=' + params.from;
-            if (params.to) url += '&to=' + params.to;
-
-            return fetch(url, {
-                method: 'GET',
-                headers: { 'Accept': 'application/json' },
-            })
-            .then(function(response) {
-                if (!response.ok) throw new Error('HTTP ' + response.status);
-                return response.json();
-            })
-            .then(function(data) {
-                if (data && data.success !== false) {
-                    return data.data || [];
-                }
-                throw new Error('Invalid response');
-            });
-        },
-
-        // --- Get Stats ---
-        getStats: function() {
-            var apiUrl = CONFIG.SPREADSHEET_API;
-
-            if (!apiUrl || apiUrl.includes('YOUR_DEPLOYMENT_ID')) {
-                return Promise.reject(new Error('API not configured'));
-            }
-
-            return fetch(apiUrl + '?action=stats', {
-                method: 'GET',
-                headers: { 'Accept': 'application/json' },
-            })
-            .then(function(response) {
-                if (!response.ok) throw new Error('HTTP ' + response.status);
-                return response.json();
-            });
-        },
-
-        // --- Update Status ---
-        updateStatus: function() {
-            State.spreadsheetStatus = this.isConnected ? 'online' : 'offline';
-            State.isSpreadsheetConnected = this.isConnected;
-        },
-
-        // --- Get Status ---
-        getStatus: function() {
-            return {
-                connected: this.isConnected,
-                lastHealthCheck: this.lastHealthCheck,
-                retryCount: this.retryCount,
-            };
-        },
-
-        // --- Logging ---
-        log: function() {
-            if (this.debug) {
-                var args = Array.prototype.slice.call(arguments);
-                args.unshift('[Spreadsheet]');
-                console.log.apply(console, args);
-            }
-        },
+    // --- Get Status ---
+    getStatus: function() {
+        return {
+        connected: this.isConnected,
+        configured: this.isConfigured,
+        lastHealthCheck: this.lastHealthCheck,
+        retryCount: this.retryCount,
+        };
+    },
     };
 
     // ================================================================

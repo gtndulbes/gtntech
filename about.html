@@ -11,6 +11,12 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
     </script>
+    <script src="assets/js/sync.js">
+    </script>
+    <script src="assets/js/mqtt-config.js">
+    </script>
+    <script src="assets/js/core.js">
+    </script>
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -678,7 +684,7 @@
             <a href="about.html" class="active"><i class="fas fa-user"></i><span>About</span></a>
         </nav>
         <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:#4a5268;text-align:center;">
-            v2.0.0
+            v3.0.0
         </div>
     </aside>
 
@@ -905,7 +911,7 @@
 
         <!-- ===== FOOTER ===== -->
         <div class="text-center text-xs text-gray-500 mt-8 border-t border-white/5 pt-4">
-            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v2.0.0
+            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v3.0.0
         </div>
     </div>
 
@@ -916,52 +922,90 @@
     <!-- ===== JAVASCRIPT ===== -->
     <script>
         // =============================================================
-        // 1. CONFIGURATION
+        // 1. KONFIGURASI UNTUK CORE
         // =============================================================
-        const CONFIG = {
-            MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
+        var APP_CONFIG = {
+            SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzomrIc68ISrGNVsOTgYI3nPy0kBgQm4WVUCYWfkB8lcwXgBJPbu2j3yxFhoz59VZk9Xw/exec',
+            TELEGRAM_BOT_TOKEN: 'YOUR_BOT_TOKEN',
+            TELEGRAM_CHAT_ID: 'YOUR_CHAT_ID',
         };
 
         // =============================================================
-        // 2. STATE
+        // 2. STATE REFERENCE (dari Core)
         // =============================================================
-        const state = {
-            mqttConnected: false,
-            wifiConnected: true,
-            sheetConnected: false,
-            dataReceived: false   // flag untuk tahu apakah sudah ada data dari MQTT
-        };
-
-        let initialized = false;
+        var stateManager = null;
+        var mqttManager = null;
+        var syncModule = null;
+        var initialized = false;
 
         // =============================================================
-        // 3. UTILITY
+        // 3. UTILITY FUNCTIONS
         // =============================================================
-        function formatTime(d) { d = d || new Date(); return d.toLocaleTimeString('id-ID', { hour12: false }); }
-
-        function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+        function formatTime(d) {
+            d = d || new Date();
+            return d.toLocaleTimeString('id-ID', { hour12: false });
+        }
 
         // =============================================================
         // 4. TOAST
         // =============================================================
-        function showToast(message, type = 'info', duration = 4000) {
-            const container = document.getElementById('toastContainer');
-            const icons = { success: 'fa-check-circle', error: 'fa-exclamation-circle', warning: 'fa-triangle-exclamation',
-                info: 'fa-circle-info' };
-            const colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
-            const el = document.createElement('div');
+        function showToast(message, type, duration) {
+            type = type || 'info';
+            duration = duration || 4000;
+            var container = document.getElementById('toastContainer');
+            var icons = {
+                success: 'fa-check-circle',
+                error: 'fa-exclamation-circle',
+                warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info'
+            };
+            var colors = { success: 'success', error: 'error', warning: 'warning', info: 'info' };
+            var el = document.createElement('div');
             el.className = 'toast';
-            el.innerHTML = `
-            <span class="icon ${colors[type]}"><i class="fas ${icons[type] || icons.info}"></i></span>
-            <span>${message}</span>
-          `;
+            el.innerHTML =
+                '<span class="icon ' + colors[type] + '"><i class="fas ' + (icons[type] || icons.info) + '"></i></span><span>' +
+                message + '</span>';
             container.appendChild(el);
-            setTimeout(() => { el.classList.add('hide');
-                setTimeout(() => el.remove(), 400); }, duration);
+            setTimeout(function() {
+                el.classList.add('hide');
+                setTimeout(function() { el.remove(); }, 400);
+            }, duration);
         }
 
         // =============================================================
-        // 5. CLOCK & SIDEBAR
+        // 5. GET STATE FROM CORE
+        // =============================================================
+        function getState(key) {
+            if (stateManager) {
+                if (typeof stateManager.get === 'function') {
+                    return stateManager.get(key);
+                }
+                if (stateManager.state && stateManager.state[key] !== undefined) {
+                    return stateManager.state[key];
+                }
+            }
+            return null;
+        }
+
+        // =============================================================
+        // 6. UPDATE STATUS INDICATORS
+        // =============================================================
+        function updateStatusIndicators() {
+            var mqttConnected = getState('isMqttConnected') || false;
+            var wifiConnected = getState('wifiStatus') === 'online' || true;
+            var sheetConnected = getState('isSpreadsheetConnected') || false;
+
+            var setDot = function(id, online) {
+                var el = document.getElementById(id);
+                if (el) { el.className = 'dot ' + (online ? 'online' : 'offline'); }
+            };
+            setDot('wifiDot', wifiConnected);
+            setDot('mqttDot', mqttConnected);
+            setDot('sheetDot', sheetConnected);
+        }
+
+        // =============================================================
+        // 7. CLOCK & SIDEBAR
         // =============================================================
         function updateClock() {
             document.getElementById('clock').textContent = formatTime();
@@ -969,99 +1013,115 @@
         setInterval(updateClock, 1000);
         updateClock();
 
-        const menuToggle = document.getElementById('menuToggle');
-        const sidebar = document.getElementById('sidebar');
-        menuToggle.addEventListener('click', function(e) {
-            e.stopPropagation();
+        var menuToggle = document.getElementById('menuToggle');
+        var sidebar = document.getElementById('sidebar');
+        menuToggle.addEventListener('click', function() {
             sidebar.classList.toggle('open');
         });
         document.addEventListener('click', function(e) {
-            if (window.innerWidth <= 1024) {
-                if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
-                    sidebar.classList.remove('open');
-                }
+            if (window.innerWidth <= 1024 && !sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+                sidebar.classList.remove('open');
             }
         });
-        window.addEventListener('resize', function() {
-            if (window.innerWidth > 1024) sidebar.classList.remove('open');
-        });
 
         // =============================================================
-        // 6. MQTT (optional)
+        // 8. SINKRONISASI DARI SyncModule
         // =============================================================
-        let mqttClient = null;
-
-        function connectMQTT() {
-            try {
-                mqttClient = mqtt.connect(CONFIG.MQTT_BROKER, {
-                    clientId: 'about_' + uid(),
-                    clean: true,
-                    reconnectPeriod: 3000,
-                });
-                mqttClient.on('connect', () => {
-                    state.mqttConnected = true;
-                    updateStatusIndicators();
-                });
-                mqttClient.on('close', () => {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                });
-                mqttClient.on('error', () => {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                });
-            } catch (e) {
-                state.mqttConnected = false;
+        if (typeof SyncModule !== 'undefined') {
+            SyncModule.setOnStateChange(function(syncState) {
                 updateStatusIndicators();
-            }
-        }
-
-        function updateStatusIndicators() {
-            const setDot = (id, online) => {
-                const el = document.getElementById(id);
-                if (el) el.className = `dot ${online ? 'online' : 'offline'}`;
-            };
-            setDot('wifiDot', state.wifiConnected);
-            setDot('mqttDot', state.mqttConnected);
-            setDot('sheetDot', state.sheetConnected);
+            });
         }
 
         // =============================================================
-        // 7. INIT
+        // 9. INITIALIZATION
         // =============================================================
         function init() {
             if (initialized) return;
             initialized = true;
-            state.temp = null;
-            state.hum = null;
-            state.nh3 = null;
-            state.peltierPwm = 0;
-            state.fanPwm = 0;
-            state.coolFanPwm = 0;
-            state.health = 100;
 
-            connectMQTT();
+            // Tunggu Core siap
+            if (typeof Core === 'undefined' || !Core.initialized) {
+                setTimeout(init, 500);
+                return;
+            }
 
-            setTimeout(() => {
-                const loadingScreen = document.getElementById('loading-screen');
-                if (loadingScreen) loadingScreen.classList.add('hide');
-            }, 800);
+            stateManager = Core.getStateManager ? Core.getStateManager() : null;
+            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
+            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
 
-            setInterval(() => {
-                if (!state.mqttConnected && mqttClient) {
-                    try { mqttClient.reconnect(); } catch (e) {}
-                }
+            if (!stateManager) {
+                console.warn('StateManager tidak tersedia, gunakan fallback');
+                stateManager = {
+                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
+                    addListener: function() {}
+                };
+                window.__fallbackState = {};
+            }
+
+            // Inisialisasi Core jika belum
+            if (typeof Core.init === 'function' && !Core.initialized) {
+                Core.init({
+                    config: {
+                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
+                    },
+                    telegram: {
+                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
+                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
+                    }
+                });
+                // Re-get managers setelah init
+                stateManager = Core.getStateManager ? Core.getStateManager() : stateManager;
+                mqttManager = Core.getMqttManager ? Core.getMqttManager() : mqttManager;
+            }
+
+            // Subscribe ke perubahan state via StateManager
+            if (stateManager && typeof stateManager.addListener === 'function') {
+                stateManager.addListener('*', function(key, value, oldValue) {
+                    updateStatusIndicators();
+                });
+            }
+
+            // Gunakan SyncModule untuk sinkronisasi antar user
+            if (syncModule && typeof syncModule.subscribeState === 'function') {
+                syncModule.subscribeState(mqttManager);
+                syncModule.setOnStateChange(function(state) {
+                    updateStatusIndicators();
+                });
+            }
+
+            // Update status indikator awal
+            updateStatusIndicators();
+
+            // Sembunyikan loading
+            var loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                setTimeout(function() { loadingScreen.classList.add('hide'); }, 800);
+            }
+
+            // Auto refresh status
+            setInterval(function() {
                 updateStatusIndicators();
             }, 10000);
 
-            console.log('ℹ️ About Page Loaded');
+            showToast('ℹ️ Halaman About siap dengan Core System', 'success');
+            console.log('ℹ️ About menggunakan Core System v3.0');
         }
 
+        // =============================================================
+        // 10. START
+        // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            init();
+            setTimeout(init, 300);
         }
+
+        // Ekspos untuk debugging
+        window.__stateManager = stateManager;
+        window.__mqttManager = mqttManager;
+        window.__syncModule = syncModule;
+        console.log('ℹ️ About siap, menunggu Core System...');
     </script>
 
 </body>

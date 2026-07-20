@@ -13,6 +13,10 @@
     </script>
     <script src="assets/js/sync.js">
     </script>
+    <script src="assets/js/mqtt-config.js">
+    </script>
+    <script src="assets/js/core.js">
+    </script>
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -840,7 +844,7 @@
             <a href="about.html"><i class="fas fa-user"></i><span>About</span></a>
         </nav>
         <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:#4a5268;text-align:center;">
-            v2.0.0
+            v3.0.0
         </div>
     </aside>
 
@@ -982,7 +986,7 @@
 
         <!-- ===== FOOTER ===== -->
         <div class="text-center text-xs text-gray-500 mt-8 border-t border-white/5 pt-4">
-            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v2.0.0
+            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v3.0.0
         </div>
     </div>
 
@@ -993,55 +997,42 @@
     <!-- ===== JAVASCRIPT ===== -->
     <script>
         // =============================================================
-        // 1. CONFIGURATION
+        // 1. KONFIGURASI UNTUK CORE
         // =============================================================
-        var CONFIG = {
-            MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
-            MQTT_TOPICS: {
-                SENSOR_SHT31: 'sensor/sht31',
-                SENSOR_MQ135: 'sensor/mq135',
-                ACTUATOR_STATUS: 'actuator/status',
-                SYSTEM_STATE: 'system/state',
-                SYSTEM_CONTROL: 'system/control',
-                FUZZY_STATUS: 'fuzzy/status',
-            },
+        var APP_CONFIG = {
+            SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzomrIc68ISrGNVsOTgYI3nPy0kBgQm4WVUCYWfkB8lcwXgBJPbu2j3yxFhoz59VZk9Xw/exec',
+            TELEGRAM_BOT_TOKEN: 'YOUR_BOT_TOKEN',
+            TELEGRAM_CHAT_ID: 'YOUR_CHAT_ID',
             PAGE_SIZE: 15,
             MAX_RECORDS: 500,
         };
 
         // =============================================================
-        // 2. STATE
+        // 2. STATE REFERENCE (dari Core)
         // =============================================================
-        var state = {
+        var stateManager = null;
+        var mqttManager = null;
+        var spreadsheetManager = null;
+        var syncModule = null;
+        var initialized = false;
+        var isLoading = false;
+
+        // =============================================================
+        // 3. UI STATE (filter, pagination)
+        // =============================================================
+        var uiState = {
             allData: [],
             filteredData: [],
             currentPage: 1,
-            pageSize: CONFIG.PAGE_SIZE,
+            pageSize: APP_CONFIG.PAGE_SIZE,
             filterRange: 'hari',
             searchQuery: '',
             lastSync: null,
-            mqttConnected: false,
-            wifiConnected: true,
-            sheetConnected: true,
-            dataReceived: false,
-            initialized: false,
-            // untuk menyimpan nilai terakhir dari MQTT
-            currentTemp: 27.0,
-            currentHum: 70.0,
-            currentNh3: 3.0,
-            currentPeltierPwm: 0,
-            currentFanPwm: 0,
-            currentCoolFanPwm: 0,
-            currentMode: 'AUTO',
-            currentKp: 2.0,
-            currentKi: 0.5,
-            currentKd: 0.1,
-            currentAlarm: 'Normal',
-            currentStatus: 'Normal',
+            totalRecords: 0,
         };
 
         // =============================================================
-        // 3. UTILITY
+        // 4. UTILITY FUNCTIONS
         // =============================================================
         function formatTime(d) {
             d = d || new Date();
@@ -1060,26 +1051,20 @@
             return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
         }
 
-        function randomBetween(min, max) {
-            return Math.random() * (max - min) + min;
-        }
-
-        function clamp(v, min, max) {
-            return Math.min(Math.max(v, min), max);
-        }
-
         function safeNumber(value, fallback) {
             fallback = fallback || 0;
             var num = Number(value);
             return Number.isFinite(num) ? num : fallback;
         }
 
-        function uid() {
-            return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        function formatValue(value, digits) {
+            digits = digits || 1;
+            var num = safeNumber(value, Number.NaN);
+            return Number.isNaN(num) ? '---' : num.toFixed(digits);
         }
 
         // =============================================================
-        // 4. TOAST
+        // 5. TOAST
         // =============================================================
         function showToast(message, type, duration) {
             type = type || 'info';
@@ -1105,171 +1090,75 @@
         }
 
         // =============================================================
-        // 5. CLOCK & SIDEBAR
+        // 6. GET STATE FROM CORE
         // =============================================================
-        function updateClock() {
-            document.getElementById('clock').textContent = formatTime();
+        function getState(key) {
+            if (stateManager) {
+                if (typeof stateManager.get === 'function') {
+                    return stateManager.get(key);
+                }
+                if (stateManager.state && stateManager.state[key] !== undefined) {
+                    return stateManager.state[key];
+                }
+            }
+            return null;
         }
-        setInterval(updateClock, 1000);
-        updateClock();
 
-        var menuToggle = document.getElementById('menuToggle');
-        var sidebar = document.getElementById('sidebar');
+        // =============================================================
+        // 7. FETCH DATA FROM SPREADSHEET
+        // =============================================================
+        function fetchHistoryData() {
+            if (isLoading) return Promise.resolve();
+            isLoading = true;
 
-        function setSidebarOpen(open) {
-            if (window.innerWidth <= 1024) {
-                sidebar.classList.toggle('open', open);
+            // Cek apakah spreadsheetManager tersedia
+            if (spreadsheetManager && typeof spreadsheetManager.getHistory === 'function') {
+                return spreadsheetManager.getHistory({ limit: APP_CONFIG.MAX_RECORDS })
+                    .then(function(data) {
+                        if (data && data.length > 0) {
+                            uiState.allData = data;
+                            uiState.lastSync = new Date();
+                            // Update status spreadsheet
+                            if (typeof spreadsheetManager.isConnected !== 'undefined') {
+                                updateSheetStatus(spreadsheetManager.isConnected);
+                            }
+                            showToast('Data dimuat: ' + data.length + ' records', 'success');
+                        } else {
+                            // Jika data kosong, coba fallback
+                            return loadFallbackData();
+                        }
+                        isLoading = false;
+                        filterData();
+                        hideLoading();
+                        return data;
+                    })
+                    .catch(function(err) {
+                        console.warn('Spreadsheet getHistory error:', err);
+                        updateSheetStatus(false);
+                        return loadFallbackData();
+                    })
+                    .finally(function() {
+                        isLoading = false;
+                    });
             } else {
-                sidebar.classList.remove('open');
+                // Fallback ke mock
+                return loadFallbackData();
             }
         }
 
-        menuToggle.addEventListener('click', function(e) {
-            e.stopPropagation();
-            setSidebarOpen(!sidebar.classList.contains('open'));
-        });
-        document.addEventListener('click', function(e) {
-            if (window.innerWidth <= 1024) {
-                if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
-                    setSidebarOpen(false);
-                }
-            }
-        });
-        window.addEventListener('resize', function() {
-            if (window.innerWidth > 1024) {
-                setSidebarOpen(false);
-            }
-        });
-
-        // =============================================================
-        // 6. MQTT
-        // =============================================================
-        var mqttClient = null;
-
-        function connectMQTT() {
-            try {
-                mqttClient = mqtt.connect(CONFIG.MQTT_BROKER, {
-                    clientId: 'datalogger_' + uid(),
-                    clean: true,
-                    reconnectPeriod: 3000,
-                });
-                mqttClient.on('connect', function() {
-                    state.mqttConnected = true;
-                    updateStatusIndicators();
-                    showToast('MQTT Terhubung', 'success');
-                    // Subscribe ke topik sensor
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.FUZZY_STATUS);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_STATE);
-                    // Subscribe ke sync state
-                    if (typeof SyncModule !== 'undefined') {
-                        SyncModule.subscribeState(mqttClient);
-                    }
-                    // Kirim status online
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
-                        command: 'dashboard_online',
-                        timestamp: new Date().toISOString()
-                    }));
-                });
-                mqttClient.on('message', function(topic, payload) {
-                    try {
-                        var data = JSON.parse(payload.toString());
-                        handleMqttMessage(topic, data);
-                    } catch (e) { /* ignore */ }
-                });
-                mqttClient.on('close', function() {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                });
-                mqttClient.on('error', function() {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                });
-            } catch (e) {
-                state.mqttConnected = false;
-                updateStatusIndicators();
-            }
-        }
-
-        function handleMqttMessage(topic, data) {
-            var updated = false;
-
-            // Update state terbaru dari MQTT
-            if (topic === CONFIG.MQTT_TOPICS.SENSOR_SHT31) {
-                if (data.temperature !== undefined) {
-                    state.currentTemp = data.temperature;
-                    updated = true;
-                }
-                if (data.humidity !== undefined) {
-                    state.currentHum = data.humidity;
-                    updated = true;
-                }
-            }
-
-            if (topic === CONFIG.MQTT_TOPICS.SENSOR_MQ135) {
-                if (data.nh3 !== undefined) {
-                    state.currentNh3 = data.nh3;
-                    updated = true;
-                }
-            }
-
-            if (topic === CONFIG.MQTT_TOPICS.ACTUATOR_STATUS) {
-                if (data.peltierPwm !== undefined) state.currentPeltierPwm = data.peltierPwm;
-                if (data.fanPwm !== undefined) state.currentFanPwm = data.fanPwm;
-                if (data.coolFanPwm !== undefined) state.currentCoolFanPwm = data.coolFanPwm;
-                if (data.mode !== undefined) state.currentMode = data.mode;
-                updated = true;
-            }
-
-            if (topic === CONFIG.MQTT_TOPICS.FUZZY_STATUS) {
-                if (data.kp !== undefined) state.currentKp = data.kp;
-                if (data.ki !== undefined) state.currentKi = data.ki;
-                if (data.kd !== undefined) state.currentKd = data.kd;
-                updated = true;
-            }
-
-            if (topic === CONFIG.MQTT_TOPICS.SYSTEM_STATE) {
-                if (typeof SyncModule !== 'undefined') {
-                    SyncModule.handleStateMessage(topic, JSON.stringify(data));
-                }
-                updated = true;
-            }
-
-            // Jika ada update, tambahkan ke data logger
-            if (updated) {
-                state.dataReceived = true;
-                // Tambahkan data baru ke tabel
-                var newRow = {
-                    timestamp: new Date().toISOString(),
-                    temperature: state.currentTemp,
-                    humidity: state.currentHum,
-                    nh3: state.currentNh3,
-                    peltierPwm: state.currentPeltierPwm,
-                    fanPwm: state.currentFanPwm,
-                    coolFanPwm: state.currentCoolFanPwm,
-                    kp: state.currentKp,
-                    ki: state.currentKi,
-                    kd: state.currentKd,
-                    mode: state.currentMode,
-                    alarm: state.currentAlarm || 'Normal',
-                    status: state.currentStatus || 'Normal',
-                };
-                state.allData.push(newRow);
-                if (state.allData.length > CONFIG.MAX_RECORDS) {
-                    state.allData.shift();
-                }
-                state.lastSync = new Date();
-                filterData();
-                // Sembunyikan loading
-                var ls = document.getElementById('loading-screen');
-                if (ls) ls.classList.add('hide');
-            }
+        function loadFallbackData() {
+            var mock = generateMockData(80);
+            uiState.allData = mock;
+            uiState.lastSync = new Date();
+            updateSheetStatus(false);
+            showToast('Data simulasi dimuat: ' + mock.length + ' records', 'info');
+            filterData();
+            hideLoading();
+            return Promise.resolve(mock);
         }
 
         // =============================================================
-        // 7. GENERATE MOCK DATA (jika tidak ada MQTT)
+        // 8. GENERATE MOCK DATA (fallback)
         // =============================================================
         function generateMockData(count) {
             count = count || 80;
@@ -1306,37 +1195,47 @@
             return data;
         }
 
-        // =============================================================
-        // 8. LOAD DATA
-        // =============================================================
-        function loadData() {
-            // Jika sudah ada data dari MQTT, jangan timpa
-            if (state.dataReceived && state.allData.length > 0) {
-                filterData();
-                var ls = document.getElementById('loading-screen');
-                if (ls) ls.classList.add('hide');
-                return;
-            }
+        function clamp(v, min, max) {
+            return Math.min(Math.max(v, min), max);
+        }
 
-            // Jika belum ada data, gunakan mock
-            var mock = generateMockData(80);
-            state.allData = mock;
-            state.lastSync = new Date();
-            filterData();
-            var ls = document.getElementById('loading-screen');
-            if (ls) ls.classList.add('hide');
-            showToast('Data simulasi dimuat: ' + mock.length + ' records', 'info');
+        function randomBetween(min, max) {
+            return Math.random() * (max - min) + min;
         }
 
         // =============================================================
-        // 9. FILTER & SEARCH
+        // 9. UPDATE STATUS INDICATORS
+        // =============================================================
+        function updateStatusIndicators() {
+            var mqttConnected = getState('isMqttConnected') || false;
+            var wifiConnected = getState('wifiStatus') === 'online' || true;
+            var sheetConnected = getState('isSpreadsheetConnected') || false;
+
+            var setDot = function(id, online) {
+                var el = document.getElementById(id);
+                if (el) { el.className = 'dot ' + (online ? 'online' : 'offline'); }
+            };
+            setDot('wifiDot', wifiConnected);
+            setDot('mqttDot', mqttConnected);
+            setDot('sheetDot', sheetConnected);
+        }
+
+        function updateSheetStatus(connected) {
+            if (stateManager && typeof stateManager.set === 'function') {
+                stateManager.set('isSpreadsheetConnected', connected, { publish: true, sync: true });
+            }
+            updateStatusIndicators();
+        }
+
+        // =============================================================
+        // 10. FILTER & SEARCH
         // =============================================================
         function filterData() {
-            var data = state.allData.slice();
+            var data = uiState.allData.slice();
 
             var now = new Date();
             var cutoff = new Date();
-            switch (state.filterRange) {
+            switch (uiState.filterRange) {
                 case 'hari':
                     cutoff.setDate(now.getDate() - 1);
                     break;
@@ -1355,8 +1254,8 @@
                 return new Date(d.timestamp) >= cutoff;
             });
 
-            if (state.searchQuery.trim()) {
-                var q = state.searchQuery.toLowerCase().trim();
+            if (uiState.searchQuery.trim()) {
+                var q = uiState.searchQuery.toLowerCase().trim();
                 data = data.filter(function(d) {
                     return d.timestamp.toLowerCase().includes(q) ||
                         d.temperature.toString().includes(q) ||
@@ -1368,18 +1267,19 @@
                 });
             }
 
-            state.filteredData = data;
-            state.currentPage = 1;
+            uiState.filteredData = data;
+            uiState.totalRecords = data.length;
+            uiState.currentPage = 1;
             updateStats();
             renderTable();
             renderPagination();
         }
 
         // =============================================================
-        // 10. STATISTICS
+        // 11. STATISTICS
         // =============================================================
         function updateStats() {
-            var data = state.filteredData;
+            var data = uiState.filteredData;
             var total = data.length;
             document.getElementById('totalRecords').textContent = total;
 
@@ -1405,18 +1305,18 @@
 
             document.getElementById('recordInfo').textContent = 'Menampilkan ' + total + ' data';
             document.getElementById('tableCount').textContent = total + ' records';
-            document.getElementById('lastSync').textContent = 'Terakhir sync: ' + (state.lastSync ? formatTime(state
+            document.getElementById('lastSync').textContent = 'Terakhir sync: ' + (uiState.lastSync ? formatTime(uiState
                 .lastSync) : '--');
         }
 
         // =============================================================
-        // 11. RENDER TABLE
+        // 12. RENDER TABLE
         // =============================================================
         function renderTable() {
             var tbody = document.getElementById('tableBody');
-            var data = state.filteredData;
-            var start = (state.currentPage - 1) * state.pageSize;
-            var end = Math.min(start + state.pageSize, data.length);
+            var data = uiState.filteredData;
+            var start = (uiState.currentPage - 1) * uiState.pageSize;
+            var end = Math.min(start + uiState.pageSize, data.length);
             var pageData = data.slice(start, end);
 
             if (pageData.length === 0) {
@@ -1450,17 +1350,17 @@
             }
             tbody.innerHTML = html;
 
-            var totalPages = Math.ceil(data.length / state.pageSize) || 1;
-            document.getElementById('pageInfo').textContent = 'Halaman ' + state.currentPage + ' dari ' + totalPages;
+            var totalPages = Math.ceil(data.length / uiState.pageSize) || 1;
+            document.getElementById('pageInfo').textContent = 'Halaman ' + uiState.currentPage + ' dari ' + totalPages;
         }
 
         // =============================================================
-        // 12. PAGINATION
+        // 13. PAGINATION
         // =============================================================
         function renderPagination() {
             var container = document.getElementById('paginationControls');
-            var totalPages = Math.ceil(state.filteredData.length / state.pageSize) || 1;
-            var current = state.currentPage;
+            var totalPages = Math.ceil(uiState.filteredData.length / uiState.pageSize) || 1;
+            var current = uiState.currentPage;
 
             container.innerHTML = '';
 
@@ -1470,7 +1370,7 @@
             prevBtn.disabled = current <= 1;
             prevBtn.addEventListener('click', function() {
                 if (current > 1) {
-                    state.currentPage--;
+                    uiState.currentPage--;
                     renderTable();
                     renderPagination();
                 }
@@ -1489,7 +1389,7 @@
                 btn.className = i === current ? 'active' : '';
                 btn.dataset.page = i;
                 btn.addEventListener('click', function() {
-                    state.currentPage = parseInt(this.textContent);
+                    uiState.currentPage = parseInt(this.textContent);
                     renderTable();
                     renderPagination();
                 });
@@ -1502,7 +1402,7 @@
             nextBtn.disabled = current >= totalPages;
             nextBtn.addEventListener('click', function() {
                 if (current < totalPages) {
-                    state.currentPage++;
+                    uiState.currentPage++;
                     renderTable();
                     renderPagination();
                 }
@@ -1511,10 +1411,10 @@
         }
 
         // =============================================================
-        // 13. EXPORT FUNCTIONS
+        // 14. EXPORT FUNCTIONS
         // =============================================================
         function exportCSV() {
-            var data = state.filteredData;
+            var data = uiState.filteredData;
             if (data.length === 0) { showToast('Tidak ada data untuk diekspor', 'warning'); return; }
             var headers = ['Timestamp', 'Temperature', 'Humidity', 'NH3', 'PeltierPWM', 'FanPWM', 'CoolFanPWM', 'Kp', 'Ki',
                 'Kd', 'Mode', 'Alarm', 'Status'
@@ -1537,7 +1437,7 @@
         }
 
         function exportExcel() {
-            var data = state.filteredData;
+            var data = uiState.filteredData;
             if (data.length === 0) { showToast('Tidak ada data untuk diekspor', 'warning'); return; }
             var headers = ['Timestamp', 'Temperature', 'Humidity', 'NH3', 'PeltierPWM', 'FanPWM', 'CoolFanPWM', 'Kp', 'Ki',
                 'Kd', 'Mode', 'Alarm', 'Status'
@@ -1560,7 +1460,7 @@
         }
 
         function exportPDF() {
-            var data = state.filteredData;
+            var data = uiState.filteredData;
             if (data.length === 0) { showToast('Tidak ada data untuk diekspor', 'warning'); return; }
             var tableHtml = document.getElementById('dataTable').outerHTML;
             var win = window.open('', '_blank');
@@ -1585,37 +1485,52 @@
         }
 
         // =============================================================
-        // 14. STATUS INDICATORS
+        // 15. HIDE LOADING
         // =============================================================
-        function updateStatusIndicators() {
-            var setDot = function(id, online) {
-                var el = document.getElementById(id);
-                if (el) el.className = 'dot ' + (online ? 'online' : 'offline');
-            };
-            setDot('wifiDot', state.wifiConnected);
-            setDot('mqttDot', state.mqttConnected);
-            setDot('sheetDot', state.sheetConnected);
+        function hideLoading() {
+            var ls = document.getElementById('loading-screen');
+            if (ls) ls.classList.add('hide');
         }
 
         // =============================================================
-        // 15. EVENT LISTENERS
+        // 16. CLOCK & SIDEBAR
+        // =============================================================
+        function updateClock() {
+            document.getElementById('clock').textContent = formatTime();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        var menuToggle = document.getElementById('menuToggle');
+        var sidebar = document.getElementById('sidebar');
+        menuToggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+        });
+        document.addEventListener('click', function(e) {
+            if (window.innerWidth <= 1024 && !sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+                sidebar.classList.remove('open');
+            }
+        });
+
+        // =============================================================
+        // 17. EVENT LISTENERS
         // =============================================================
         document.querySelectorAll('.filter-range').forEach(function(btn) {
             btn.addEventListener('click', function() {
                 document.querySelectorAll('.filter-range').forEach(function(b) { b.classList.remove('active'); });
                 this.classList.add('active');
-                state.filterRange = this.dataset.range;
+                uiState.filterRange = this.dataset.range;
                 filterData();
             });
         });
 
         document.getElementById('searchInput').addEventListener('input', function() {
-            state.searchQuery = this.value;
+            uiState.searchQuery = this.value;
             filterData();
         });
 
         document.getElementById('refreshDataBtn').addEventListener('click', function() {
-            loadData();
+            fetchHistoryData();
         });
 
         document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
@@ -1623,84 +1538,128 @@
         document.getElementById('exportPdfBtn').addEventListener('click', exportPDF);
 
         // =============================================================
-        // 16. SINKRONISASI DARI SyncModule
+        // 18. SINKRONISASI DARI SyncModule
         // =============================================================
         if (typeof SyncModule !== 'undefined') {
             SyncModule.setOnStateChange(function(syncState) {
-                if (syncState.currentTemp !== undefined) state.currentTemp = syncState.currentTemp;
-                if (syncState.currentHum !== undefined) state.currentHum = syncState.currentHum;
-                if (syncState.currentNh3 !== undefined) state.currentNh3 = syncState.currentNh3;
-                if (syncState.currentMode !== undefined) state.currentMode = syncState.currentMode;
-                if (syncState.currentKp !== undefined) state.currentKp = syncState.currentKp;
-                if (syncState.currentKi !== undefined) state.currentKi = syncState.currentKi;
-                if (syncState.currentKd !== undefined) state.currentKd = syncState.currentKd;
-                // Tambahkan data baru
-                var newRow = {
-                    timestamp: new Date().toISOString(),
-                    temperature: state.currentTemp,
-                    humidity: state.currentHum,
-                    nh3: state.currentNh3,
-                    peltierPwm: syncState.currentPeltierPwm || 0,
-                    fanPwm: syncState.currentFanPwm || 0,
-                    coolFanPwm: syncState.currentCoolFanPwm || 0,
-                    kp: state.currentKp,
-                    ki: state.currentKi,
-                    kd: state.currentKd,
-                    mode: state.currentMode,
-                    alarm: 'Normal',
-                    status: 'Normal',
-                };
-                state.allData.push(newRow);
-                if (state.allData.length > CONFIG.MAX_RECORDS) state.allData.shift();
-                state.lastSync = new Date();
-                filterData();
+                // Update UI jika ada perubahan state yang relevan
+                updateStatusIndicators();
             });
         }
 
         // =============================================================
-        // 17. INIT
+        // 19. INITIALIZATION
         // =============================================================
         function init() {
-            if (state.initialized) return;
-            state.initialized = true;
+            if (initialized) return;
+            initialized = true;
 
-            connectMQTT();
-            loadData();
+            // Tunggu Core siap
+            if (typeof Core === 'undefined' || !Core.initialized) {
+                setTimeout(init, 500);
+                return;
+            }
+
+            stateManager = Core.getStateManager ? Core.getStateManager() : null;
+            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
+            spreadsheetManager = Core.getSpreadsheetManager ? Core.getSpreadsheetManager() : null;
+            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+
+            if (!stateManager) {
+                console.warn('StateManager tidak tersedia, gunakan fallback');
+                stateManager = {
+                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
+                    set: function(key, value) {
+                        window.__fallbackState = window.__fallbackState || {};
+                        window.__fallbackState[key] = value;
+                    },
+                    addListener: function() {}
+                };
+                window.__fallbackState = {};
+            }
+
+            // Inisialisasi Core jika belum
+            if (typeof Core.init === 'function' && !Core.initialized) {
+                Core.init({
+                    config: {
+                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
+                    },
+                    telegram: {
+                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
+                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
+                    }
+                });
+                // Re-get managers setelah init
+                stateManager = Core.getStateManager ? Core.getStateManager() : stateManager;
+                mqttManager = Core.getMqttManager ? Core.getMqttManager() : mqttManager;
+                spreadsheetManager = Core.getSpreadsheetManager ? Core.getSpreadsheetManager() : spreadsheetManager;
+            }
+
+            // Subscribe ke perubahan state via StateManager
+            if (stateManager && typeof stateManager.addListener === 'function') {
+                stateManager.addListener('*', function(key, value, oldValue) {
+                    updateStatusIndicators();
+                });
+            }
+
+            // Gunakan SyncModule untuk sinkronisasi antar user
+            if (syncModule && typeof syncModule.subscribeState === 'function') {
+                syncModule.subscribeState(mqttManager);
+                syncModule.setOnStateChange(function(state) {
+                    updateStatusIndicators();
+                });
+            }
+
+            // Update status indikator awal
+            updateStatusIndicators();
+
+            // Load data
+            fetchHistoryData().then(function() {
+                // Set default display jika masih kosong
+                var minEl = document.getElementById('tempMin');
+                var maxEl = document.getElementById('tempMax');
+                var avgEl = document.getElementById('tempAvg');
+                if (minEl && minEl.textContent === '--') {
+                    // Data sudah di-load, tidak perlu set default
+                }
+            });
 
             // Auto refresh setiap 30 detik
             setInterval(function() {
-                // Jika sudah ada data dari MQTT, refresh hanya jika perlu
-                if (state.dataReceived) {
-                    // Data sudah diupdate via MQTT
-                } else {
-                    loadData();
+                if (!isLoading) {
+                    fetchHistoryData();
                 }
             }, 30000);
 
-            // MQTT reconnect check
+            // Update status periodik
             setInterval(function() {
-                if (!state.mqttConnected && mqttClient) {
-                    try { mqttClient.reconnect(); } catch (e) {}
-                }
                 updateStatusIndicators();
             }, 10000);
 
-            // Pastikan loading screen hilang
+            // Pastikan loading screen hilang setelah 3 detik (fallback)
             setTimeout(function() {
-                var ls = document.getElementById('loading-screen');
-                if (ls) ls.classList.add('hide');
-            }, 1500);
+                hideLoading();
+            }, 3000);
+
+            showToast('Data Logger siap dengan Core System', 'success');
+            console.log('📈 Data Logger menggunakan Core System v3.0');
         }
 
+        // =============================================================
+        // 20. START
+        // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            init();
+            setTimeout(init, 300);
         }
 
-        // Ekspos untuk debug
-        window.__state = state;
-        console.log('📈 Data Logger Page Loaded');
+        // Ekspos untuk debugging
+        window.__uiState = uiState;
+        window.__stateManager = stateManager;
+        window.__spreadsheetManager = spreadsheetManager;
+        window.__fetchHistory = fetchHistoryData;
+        console.log('📈 Data Logger siap, menunggu Core System...');
     </script>
 
 </body>

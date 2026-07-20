@@ -13,6 +13,10 @@
     </script>
     <script src="assets/js/sync.js">
     </script>
+    <script src="assets/js/mqtt-config.js">
+    </script>
+    <script src="assets/js/core.js">
+    </script>
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -791,7 +795,7 @@
             <a href="about.html"><i class="fas fa-user"></i><span>About</span></a>
         </nav>
         <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:#4a5268;text-align:center;">
-            v2.0.0
+            v3.0.0
         </div>
     </aside>
 
@@ -855,7 +859,7 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">Versi</label>
-                        <input type="text" class="form-input" value="v2.0.0" disabled />
+                        <input type="text" class="form-input" value="v3.0.0" disabled />
                     </div>
                     <div class="form-group">
                         <label class="form-label">Interval Sampling (detik)</label>
@@ -1099,7 +1103,7 @@
 
         <!-- ===== FOOTER ===== -->
         <div class="text-center text-xs text-gray-500 mt-8 border-t border-white/5 pt-4">
-            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v2.0.0
+            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v3.0.0
         </div>
     </div>
 
@@ -1110,54 +1114,130 @@
     <!-- ===== JAVASCRIPT ===== -->
     <script>
         // =============================================================
-        // 1. CONFIGURATION
+        // 1. KONFIGURASI UNTUK CORE
         // =============================================================
-        var CONFIG = {
-            MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
-            MQTT_TOPICS: {
-                SYSTEM_STATE: 'system/state',
-                SYSTEM_CONTROL: 'system/control',
-                SENSOR_STATUS: 'sensor/status',
-                FUZZY_STATUS: 'fuzzy/status',
-                SETTING_UPDATE: 'setting/update',
-            },
+        var APP_CONFIG = {
+            SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzomrIc68ISrGNVsOTgYI3nPy0kBgQm4WVUCYWfkB8lcwXgBJPbu2j3yxFhoz59VZk9Xw/exec',
+            TELEGRAM_BOT_TOKEN: 'YOUR_BOT_TOKEN',
+            TELEGRAM_CHAT_ID: 'YOUR_CHAT_ID',
         };
 
         // =============================================================
-        // 2. STATE (dengan SyncModule integration)
+        // 2. STATE REFERENCE (dari Core)
         // =============================================================
-        var state = {
-            mqttConnected: false,
-            wifiConnected: true,
-            sheetConnected: false,
-            dataReceived: false,
-            initialized: false,
+        var stateManager = null;
+        var mqttManager = null;
+        var syncModule = null;
+        var initialized = false;
 
-            // Konfigurasi yang disimpan di SyncModule
+        // Settings keys
+        var SETTINGS_KEYS = {
+            systemName: 'systemName',
+            samplingInterval: 'samplingInterval',
+            loggingInterval: 'loggingInterval',
+            defaultMode: 'defaultMode',
+            timezone: 'timezone',
+            darkMode: 'darkMode',
+            autoRefresh: 'autoRefresh',
+            wifiSsid: 'wifiSsid',
+            wifiPassword: 'wifiPassword',
+            wifiIp: 'wifiIp',
+            wifiGateway: 'wifiGateway',
+            wifiDhcp: 'wifiDhcp',
+            mqttBroker: 'mqttBroker',
+            mqttClientId: 'mqttClientId',
+            mqttUsername: 'mqttUsername',
+            mqttPassword: 'mqttPassword',
+            mqttTopicPub: 'mqttTopicPub',
+            mqttTopicSub: 'mqttTopicSub',
+            mqttAutoReconnect: 'mqttAutoReconnect',
+            sheetApiUrl: 'sheetApiUrl',
+            sheetId: 'sheetId',
+            sheetName: 'sheetName',
+            sheetLogInterval: 'sheetLogInterval',
+            sheetAutoLog: 'sheetAutoLog',
+            tempOffset: 'tempOffset',
+            humOffset: 'humOffset',
+            nh3Offset: 'nh3Offset',
+            tempMinValid: 'tempMinValid',
+            tempMaxValid: 'tempMaxValid',
+            nh3MaxValid: 'nh3MaxValid',
+            alarmTempMax: 'alarmTempMax',
+            alarmTempMin: 'alarmTempMin',
+            alarmHumMax: 'alarmHumMax',
+            alarmHumMin: 'alarmHumMin',
+            alarmNh3Max: 'alarmNh3Max',
+            alarmDelay: 'alarmDelay',
+            alarmTelegram: 'alarmTelegram',
+            alarmBuzzer: 'alarmBuzzer',
+            userUsername: 'userUsername',
+            userPassword: 'userPassword',
+            userRole: 'userRole',
+            userEmail: 'userEmail',
+        };
+
+        // Default values
+        var DEFAULT_SETTINGS = {
             systemName: 'IoT Kandang Ulat Hongkong',
             samplingInterval: 2,
+            loggingInterval: 30,
             defaultMode: 'AUTO',
-            mqttBroker: 'wss://broker.emqx.io:8084/mqtt',
+            timezone: 'Asia/Jakarta',
+            darkMode: true,
+            autoRefresh: true,
             wifiSsid: 'Wifi_UMKM_01',
+            wifiPassword: 'password123',
+            wifiIp: '',
+            wifiGateway: '',
+            wifiDhcp: true,
+            mqttBroker: 'wss://broker.emqx.io:8084/mqtt',
+            mqttClientId: 'iot_esp32_001',
+            mqttUsername: '',
+            mqttPassword: '',
+            mqttTopicPub: 'sensor/sht31',
+            mqttTopicSub: 'actuator/control',
+            mqttAutoReconnect: true,
             sheetApiUrl: 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec',
+            sheetId: '1ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+            sheetName: 'Data Logger',
+            sheetLogInterval: 30,
+            sheetAutoLog: true,
             tempOffset: 0,
             humOffset: 0,
+            nh3Offset: 0,
+            tempMinValid: 0,
+            tempMaxValid: 50,
+            nh3MaxValid: 500,
             alarmTempMax: 32,
             alarmTempMin: 24,
+            alarmHumMax: 90,
+            alarmHumMin: 60,
+            alarmNh3Max: 25,
+            alarmDelay: 10,
+            alarmTelegram: true,
+            alarmBuzzer: true,
             userUsername: 'admin',
+            userPassword: '',
+            userRole: 'admin',
+            userEmail: 'admin@iot.com',
         };
 
         // =============================================================
-        // 3. UTILITY
+        // 3. UTILITY FUNCTIONS
         // =============================================================
-        function formatTime(d) { d = d || new Date(); return d.toLocaleTimeString('id-ID', { hour12: false }); }
-
-        function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+        function formatTime(d) {
+            d = d || new Date();
+            return d.toLocaleTimeString('id-ID', { hour12: false });
+        }
 
         function safeNumber(value, fallback) {
             fallback = fallback || 0;
             var num = Number(value);
             return Number.isFinite(num) ? num : fallback;
+        }
+
+        function uid() {
+            return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         }
 
         // =============================================================
@@ -1187,216 +1267,210 @@
         }
 
         // =============================================================
-        // 5. CLOCK & SIDEBAR
+        // 5. GET/SET STATE FROM CORE
         // =============================================================
-        function updateClock() {
-            document.getElementById('clock').textContent = formatTime();
-        }
-        setInterval(updateClock, 1000);
-        updateClock();
-
-        var menuToggle = document.getElementById('menuToggle');
-        var sidebar = document.getElementById('sidebar');
-
-        function setSidebarOpen(open) {
-            if (window.innerWidth <= 1024) {
-                sidebar.classList.toggle('open', open);
-            } else {
-                sidebar.classList.remove('open');
-            }
-        }
-
-        menuToggle.addEventListener('click', function(e) {
-            e.stopPropagation();
-            setSidebarOpen(!sidebar.classList.contains('open'));
-        });
-        document.addEventListener('click', function(e) {
-            if (window.innerWidth <= 1024) {
-                if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
-                    setSidebarOpen(false);
+        function getState(key) {
+            if (stateManager) {
+                if (typeof stateManager.get === 'function') {
+                    return stateManager.get(key);
+                }
+                if (stateManager.state && stateManager.state[key] !== undefined) {
+                    return stateManager.state[key];
                 }
             }
-        });
-        window.addEventListener('resize', function() {
-            if (window.innerWidth > 1024) {
-                setSidebarOpen(false);
-            }
-        });
-
-        // =============================================================
-        // 6. MQTT
-        // =============================================================
-        var mqttClient = null;
-
-        function connectMQTT() {
-            try {
-                mqttClient = mqtt.connect(CONFIG.MQTT_BROKER, {
-                    clientId: 'settings_' + uid(),
-                    clean: true,
-                    reconnectPeriod: 3000,
-                });
-                mqttClient.on('connect', function() {
-                    state.mqttConnected = true;
-                    updateStatusIndicators();
-                    showToast('MQTT Terhubung', 'success');
-                    // Subscribe ke system state untuk sync
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_STATE);
-                    // Kirim status online
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
-                        command: 'dashboard_online',
-                        timestamp: new Date().toISOString()
-                    }));
-                    // Minta status setting
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SETTING_UPDATE, JSON.stringify({
-                        request: 'status'
-                    }));
-                });
-                mqttClient.on('message', function(topic, payload) {
-                    try {
-                        var data = JSON.parse(payload.toString());
-                        handleMqttMessage(topic, data);
-                    } catch (e) { /* ignore */ }
-                });
-                mqttClient.on('close', function() {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                });
-                mqttClient.on('error', function() {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                });
-            } catch (e) {
-                state.mqttConnected = false;
-                updateStatusIndicators();
-            }
+            return null;
         }
 
-        function handleMqttMessage(topic, data) {
-            var updated = false;
-            if (topic === CONFIG.MQTT_TOPICS.SYSTEM_STATE) {
-                if (typeof SyncModule !== 'undefined') {
-                    SyncModule.handleStateMessage(topic, JSON.stringify(data));
-                }
-                // Update state dari sync
-                if (data.systemName !== undefined) { state.systemName = data.systemName;
-                    updated = true; }
-                if (data.samplingInterval !== undefined) { state.samplingInterval = data.samplingInterval;
-                    updated = true; }
-                if (data.defaultMode !== undefined) { state.defaultMode = data.defaultMode;
-                    updated = true; }
-                if (data.mqttBroker !== undefined) { state.mqttBroker = data.mqttBroker;
-                    updated = true; }
-                if (data.wifiSsid !== undefined) { state.wifiSsid = data.wifiSsid;
-                    updated = true; }
-                if (data.sheetApiUrl !== undefined) { state.sheetApiUrl = data.sheetApiUrl;
-                    updated = true; }
-                if (data.tempOffset !== undefined) { state.tempOffset = data.tempOffset;
-                    updated = true; }
-                if (data.humOffset !== undefined) { state.humOffset = data.humOffset;
-                    updated = true; }
-                if (data.alarmTempMax !== undefined) { state.alarmTempMax = data.alarmTempMax;
-                    updated = true; }
-                if (data.alarmTempMin !== undefined) { state.alarmTempMin = data.alarmTempMin;
-                    updated = true; }
-                if (data.userUsername !== undefined) { state.userUsername = data.userUsername;
-                    updated = true; }
-                if (updated) {
-                    state.dataReceived = true;
-                    // Update UI dengan nilai dari sync
-                    updateUIFromState();
+        function setState(key, value, options) {
+            options = options || { publish: true, sync: true };
+            if (stateManager) {
+                if (typeof stateManager.set === 'function') {
+                    stateManager.set(key, value, options);
+                } else if (typeof stateManager.update === 'function') {
+                    var updates = {};
+                    updates[key] = value;
+                    stateManager.update(updates, options);
                 }
             }
-            // Sembunyikan loading jika sudah dapat data
-            var ls = document.getElementById('loading-screen');
-            if (ls) ls.classList.add('hide');
+        }
+
+        function getSettings() {
+            return getState('settings') || {};
+        }
+
+        function setSettings(settings, options) {
+            setState('settings', settings, options);
+        }
+
+        function getSetting(key) {
+            var settings = getSettings();
+            return settings[key] !== undefined ? settings[key] : DEFAULT_SETTINGS[key];
+        }
+
+        function setSetting(key, value, options) {
+            var settings = getSettings();
+            settings[key] = value;
+            setSettings(settings, options);
         }
 
         // =============================================================
-        // 7. UPDATE UI DARI STATE
+        // 6. UPDATE UI FROM SETTINGS
         // =============================================================
-        function updateUIFromState() {
-            // General
-            var sysName = document.getElementById('systemName');
-            if (sysName) sysName.value = state.systemName;
-            var sampInt = document.getElementById('samplingInterval');
-            if (sampInt) sampInt.value = state.samplingInterval;
-            var defMode = document.getElementById('defaultMode');
-            if (defMode) defMode.value = state.defaultMode;
+        function updateUIFromSettings() {
+            var settings = getSettings();
 
-            // WiFi
-            var wifiSsid = document.getElementById('wifiSsid');
-            if (wifiSsid) wifiSsid.value = state.wifiSsid;
+            // Helper to set value if element exists
+            function setVal(id, val) {
+                var el = document.getElementById(id);
+                if (el) {
+                    if (el.type === 'checkbox') {
+                        el.checked = val === true || val === 'true';
+                    } else {
+                        el.value = val !== undefined ? val : '';
+                    }
+                }
+            }
 
-            // MQTT
-            var mqttBroker = document.getElementById('mqttBroker');
-            if (mqttBroker) mqttBroker.value = state.mqttBroker;
+            setVal('systemName', settings.systemName);
+            setVal('samplingInterval', settings.samplingInterval);
+            setVal('loggingInterval', settings.loggingInterval);
+            setVal('defaultMode', settings.defaultMode);
+            setVal('timezone', settings.timezone);
+            setVal('darkMode', settings.darkMode);
+            setVal('autoRefresh', settings.autoRefresh);
 
-            // Spreadsheet
-            var sheetApi = document.getElementById('sheetApiUrl');
-            if (sheetApi) sheetApi.value = state.sheetApiUrl;
+            setVal('wifiSsid', settings.wifiSsid);
+            setVal('wifiPassword', settings.wifiPassword);
+            setVal('wifiIp', settings.wifiIp);
+            setVal('wifiGateway', settings.wifiGateway);
+            setVal('wifiDhcp', settings.wifiDhcp);
 
-            // Sensor
-            var tempOff = document.getElementById('tempOffset');
-            if (tempOff) tempOff.value = state.tempOffset;
-            var humOff = document.getElementById('humOffset');
-            if (humOff) humOff.value = state.humOffset;
+            setVal('mqttBroker', settings.mqttBroker);
+            setVal('mqttClientId', settings.mqttClientId);
+            setVal('mqttUsername', settings.mqttUsername);
+            setVal('mqttPassword', settings.mqttPassword);
+            setVal('mqttTopicPub', settings.mqttTopicPub);
+            setVal('mqttTopicSub', settings.mqttTopicSub);
+            setVal('mqttAutoReconnect', settings.mqttAutoReconnect);
 
-            // Alarm
-            var almMax = document.getElementById('alarmTempMax');
-            if (almMax) almMax.value = state.alarmTempMax;
-            var almMin = document.getElementById('alarmTempMin');
-            if (almMin) almMin.value = state.alarmTempMin;
+            setVal('sheetApiUrl', settings.sheetApiUrl);
+            setVal('sheetId', settings.sheetId);
+            setVal('sheetName', settings.sheetName);
+            setVal('sheetLogInterval', settings.sheetLogInterval);
+            setVal('sheetAutoLog', settings.sheetAutoLog);
 
-            // User
-            var user = document.getElementById('userUsername');
-            if (user) user.value = state.userUsername;
+            setVal('tempOffset', settings.tempOffset);
+            setVal('humOffset', settings.humOffset);
+            setVal('nh3Offset', settings.nh3Offset);
+            setVal('tempMinValid', settings.tempMinValid);
+            setVal('tempMaxValid', settings.tempMaxValid);
+            setVal('nh3MaxValid', settings.nh3MaxValid);
 
-            // Sembunyikan loading
-            var ls = document.getElementById('loading-screen');
-            if (ls) ls.classList.add('hide');
+            setVal('alarmTempMax', settings.alarmTempMax);
+            setVal('alarmTempMin', settings.alarmTempMin);
+            setVal('alarmHumMax', settings.alarmHumMax);
+            setVal('alarmHumMin', settings.alarmHumMin);
+            setVal('alarmNh3Max', settings.alarmNh3Max);
+            setVal('alarmDelay', settings.alarmDelay);
+            setVal('alarmTelegram', settings.alarmTelegram);
+            setVal('alarmBuzzer', settings.alarmBuzzer);
+
+            setVal('userUsername', settings.userUsername);
+            setVal('userPassword', settings.userPassword);
+            setVal('userRole', settings.userRole);
+            setVal('userEmail', settings.userEmail);
         }
 
         // =============================================================
-        // 8. PUBLISH SETTINGS KE MQTT (Sync)
+        // 7. COLLECT SETTINGS FROM UI
         // =============================================================
-        function publishSettings() {
-            if (!mqttClient || !mqttClient.connected) return;
-            var data = {
-                systemName: document.getElementById('systemName').value,
-                samplingInterval: parseInt(document.getElementById('samplingInterval').value) || 2,
-                defaultMode: document.getElementById('defaultMode').value,
-                mqttBroker: document.getElementById('mqttBroker').value,
-                wifiSsid: document.getElementById('wifiSsid').value,
-                sheetApiUrl: document.getElementById('sheetApiUrl').value,
-                tempOffset: parseFloat(document.getElementById('tempOffset').value) || 0,
-                humOffset: parseFloat(document.getElementById('humOffset').value) || 0,
-                alarmTempMax: parseFloat(document.getElementById('alarmTempMax').value) || 32,
-                alarmTempMin: parseFloat(document.getElementById('alarmTempMin').value) || 24,
-                userUsername: document.getElementById('userUsername').value,
+        function collectSettingsFromUI() {
+            function getVal(id) {
+                var el = document.getElementById(id);
+                if (!el) return null;
+                if (el.type === 'checkbox') return el.checked;
+                return el.value;
+            }
+
+            return {
+                systemName: getVal('systemName') || DEFAULT_SETTINGS.systemName,
+                samplingInterval: safeNumber(getVal('samplingInterval'), DEFAULT_SETTINGS.samplingInterval),
+                loggingInterval: safeNumber(getVal('loggingInterval'), DEFAULT_SETTINGS.loggingInterval),
+                defaultMode: getVal('defaultMode') || DEFAULT_SETTINGS.defaultMode,
+                timezone: getVal('timezone') || DEFAULT_SETTINGS.timezone,
+                darkMode: getVal('darkMode') !== null ? getVal('darkMode') : DEFAULT_SETTINGS.darkMode,
+                autoRefresh: getVal('autoRefresh') !== null ? getVal('autoRefresh') : DEFAULT_SETTINGS.autoRefresh,
+
+                wifiSsid: getVal('wifiSsid') || DEFAULT_SETTINGS.wifiSsid,
+                wifiPassword: getVal('wifiPassword') || DEFAULT_SETTINGS.wifiPassword,
+                wifiIp: getVal('wifiIp') || '',
+                wifiGateway: getVal('wifiGateway') || '',
+                wifiDhcp: getVal('wifiDhcp') !== null ? getVal('wifiDhcp') : DEFAULT_SETTINGS.wifiDhcp,
+
+                mqttBroker: getVal('mqttBroker') || DEFAULT_SETTINGS.mqttBroker,
+                mqttClientId: getVal('mqttClientId') || DEFAULT_SETTINGS.mqttClientId,
+                mqttUsername: getVal('mqttUsername') || '',
+                mqttPassword: getVal('mqttPassword') || '',
+                mqttTopicPub: getVal('mqttTopicPub') || DEFAULT_SETTINGS.mqttTopicPub,
+                mqttTopicSub: getVal('mqttTopicSub') || DEFAULT_SETTINGS.mqttTopicSub,
+                mqttAutoReconnect: getVal('mqttAutoReconnect') !== null ? getVal('mqttAutoReconnect') : DEFAULT_SETTINGS
+                    .mqttAutoReconnect,
+
+                sheetApiUrl: getVal('sheetApiUrl') || DEFAULT_SETTINGS.sheetApiUrl,
+                sheetId: getVal('sheetId') || DEFAULT_SETTINGS.sheetId,
+                sheetName: getVal('sheetName') || DEFAULT_SETTINGS.sheetName,
+                sheetLogInterval: safeNumber(getVal('sheetLogInterval'), DEFAULT_SETTINGS.sheetLogInterval),
+                sheetAutoLog: getVal('sheetAutoLog') !== null ? getVal('sheetAutoLog') : DEFAULT_SETTINGS.sheetAutoLog,
+
+                tempOffset: safeNumber(getVal('tempOffset'), DEFAULT_SETTINGS.tempOffset),
+                humOffset: safeNumber(getVal('humOffset'), DEFAULT_SETTINGS.humOffset),
+                nh3Offset: safeNumber(getVal('nh3Offset'), DEFAULT_SETTINGS.nh3Offset),
+                tempMinValid: safeNumber(getVal('tempMinValid'), DEFAULT_SETTINGS.tempMinValid),
+                tempMaxValid: safeNumber(getVal('tempMaxValid'), DEFAULT_SETTINGS.tempMaxValid),
+                nh3MaxValid: safeNumber(getVal('nh3MaxValid'), DEFAULT_SETTINGS.nh3MaxValid),
+
+                alarmTempMax: safeNumber(getVal('alarmTempMax'), DEFAULT_SETTINGS.alarmTempMax),
+                alarmTempMin: safeNumber(getVal('alarmTempMin'), DEFAULT_SETTINGS.alarmTempMin),
+                alarmHumMax: safeNumber(getVal('alarmHumMax'), DEFAULT_SETTINGS.alarmHumMax),
+                alarmHumMin: safeNumber(getVal('alarmHumMin'), DEFAULT_SETTINGS.alarmHumMin),
+                alarmNh3Max: safeNumber(getVal('alarmNh3Max'), DEFAULT_SETTINGS.alarmNh3Max),
+                alarmDelay: safeNumber(getVal('alarmDelay'), DEFAULT_SETTINGS.alarmDelay),
+                alarmTelegram: getVal('alarmTelegram') !== null ? getVal('alarmTelegram') : DEFAULT_SETTINGS
+                    .alarmTelegram,
+                alarmBuzzer: getVal('alarmBuzzer') !== null ? getVal('alarmBuzzer') : DEFAULT_SETTINGS.alarmBuzzer,
+
+                userUsername: getVal('userUsername') || DEFAULT_SETTINGS.userUsername,
+                userPassword: getVal('userPassword') || '',
+                userRole: getVal('userRole') || DEFAULT_SETTINGS.userRole,
+                userEmail: getVal('userEmail') || DEFAULT_SETTINGS.userEmail,
             };
-            // Update state
-            for (var key in data) {
-                state[key] = data[key];
-            }
-            // Kirim ke MQTT
-            mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_STATE, JSON.stringify(data));
-            // Sinkronisasi via SyncModule
-            if (typeof SyncModule !== 'undefined') {
-                SyncModule.updateLocalState(data, mqttClient);
-            }
+        }
+
+        // =============================================================
+        // 8. PUBLISH SETTINGS VIA SYNC
+        // =============================================================
+        function publishSettings(settings) {
+            settings = settings || collectSettingsFromUI();
+            setSettings(settings, { publish: true, sync: true });
+            updateUIFromSettings();
+            showToast('Pengaturan disimpan dan disinkronkan', 'success');
         }
 
         // =============================================================
         // 9. STATUS INDICATORS
         // =============================================================
         function updateStatusIndicators() {
+            var mqttConnected = getState('isMqttConnected') || false;
+            var wifiConnected = getState('wifiStatus') === 'online' || true;
+            var sheetConnected = getState('isSpreadsheetConnected') || false;
+
             var setDot = function(id, online) {
                 var el = document.getElementById(id);
-                if (el) el.className = 'dot ' + (online ? 'online' : 'offline');
+                if (el) { el.className = 'dot ' + (online ? 'online' : 'offline'); }
             };
-            setDot('wifiDot', state.wifiConnected);
-            setDot('mqttDot', state.mqttConnected);
-            setDot('sheetDot', state.sheetConnected);
+            setDot('wifiDot', wifiConnected);
+            setDot('mqttDot', mqttConnected);
+            setDot('sheetDot', sheetConnected);
         }
 
         // =============================================================
@@ -1413,37 +1487,48 @@
         });
 
         // =============================================================
-        // 11. SAVE HANDLERS (dengan sync)
+        // 11. SAVE HANDLERS
         // =============================================================
         document.getElementById('saveGeneralBtn').addEventListener('click', function() {
             publishSettings();
-            showToast('Pengaturan umum disimpan dan disinkronkan', 'success');
         });
 
         document.getElementById('saveWifiBtn').addEventListener('click', function() {
-            var ssid = document.getElementById('wifiSsid').value;
-            state.wifiSsid = ssid;
             publishSettings();
-            showToast('Konfigurasi WiFi disimpan untuk SSID: ' + ssid, 'success');
-        });
-
-        document.getElementById('scanWifiBtn').addEventListener('click', function() {
-            showToast('🔍 Scanning jaringan WiFi... (simulasi)', 'info');
-            setTimeout(function() {
-                showToast('Ditemukan 5 jaringan WiFi', 'success');
-            }, 1500);
         });
 
         document.getElementById('saveMqttBtn').addEventListener('click', function() {
-            var broker = document.getElementById('mqttBroker').value;
-            state.mqttBroker = broker;
             publishSettings();
-            showToast('Konfigurasi MQTT disimpan: ' + broker, 'success');
+            // Also test MQTT with new broker if changed
+            var broker = document.getElementById('mqttBroker').value;
+            if (broker && broker !== CONFIG.MQTT_BROKER) {
+                showToast('Broker MQTT diubah, silakan test koneksi', 'info');
+            }
         });
 
+        document.getElementById('saveSheetBtn').addEventListener('click', function() {
+            publishSettings();
+        });
+
+        document.getElementById('saveSensorBtn').addEventListener('click', function() {
+            publishSettings();
+        });
+
+        document.getElementById('saveAlarmBtn').addEventListener('click', function() {
+            publishSettings();
+        });
+
+        document.getElementById('saveUserBtn').addEventListener('click', function() {
+            publishSettings();
+        });
+
+        // =============================================================
+        // 12. TEST CONNECTIONS
+        // =============================================================
         document.getElementById('testMqttBtn').addEventListener('click', function() {
-            showToast('🔄 Menguji koneksi MQTT...', 'info');
-            var testClient = mqtt.connect(document.getElementById('mqttBroker').value || CONFIG.MQTT_BROKER, {
+            var broker = document.getElementById('mqttBroker').value || CONFIG.MQTT_BROKER;
+            showToast('🔄 Menguji koneksi MQTT ke ' + broker + '...', 'info');
+            var testClient = mqtt.connect(broker, {
                 clientId: 'test_' + uid(),
                 clean: true,
                 reconnectPeriod: 1000,
@@ -1453,8 +1538,6 @@
                 if (!resolved) {
                     resolved = true;
                     testClient.end();
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
                     showToast('❌ Koneksi MQTT gagal!', 'error');
                 }
             }, 5000);
@@ -1462,8 +1545,6 @@
                 if (!resolved) {
                     resolved = true;
                     testClient.end();
-                    state.mqttConnected = true;
-                    updateStatusIndicators();
                     showToast('✅ Koneksi MQTT berhasil!', 'success');
                 }
             });
@@ -1471,40 +1552,48 @@
                 if (!resolved) {
                     resolved = true;
                     testClient.end();
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
                     showToast('❌ Koneksi MQTT gagal!', 'error');
                 }
             });
         });
 
-        document.getElementById('saveSheetBtn').addEventListener('click', function() {
-            var apiUrl = document.getElementById('sheetApiUrl').value;
-            state.sheetApiUrl = apiUrl;
-            publishSettings();
-            showToast('Konfigurasi Spreadsheet disimpan: ' + apiUrl.substring(0, 40) + '...', 'success');
-        });
-
         document.getElementById('testSheetBtn').addEventListener('click', function() {
+            var apiUrl = document.getElementById('sheetApiUrl').value;
+            if (!apiUrl || apiUrl.includes('YOUR_DEPLOYMENT_ID')) {
+                showToast('❌ API URL belum dikonfigurasi', 'error');
+                return;
+            }
             showToast('🔄 Menguji koneksi Spreadsheet...', 'info');
-            setTimeout(function() {
-                state.sheetConnected = Math.random() > 0.3;
-                updateStatusIndicators();
-                if (state.sheetConnected) {
+            fetch(apiUrl + '?action=health', {
+                method: 'GET',
+                headers: { 'Accept': 'application/json' },
+            })
+            .then(function(response) {
+                if (response.ok) return response.json();
+                throw new Error('HTTP ' + response.status);
+            })
+            .then(function(data) {
+                if (data && data.success !== false) {
                     showToast('✅ Koneksi Spreadsheet berhasil!', 'success');
+                    setState('isSpreadsheetConnected', true, { publish: true, sync: true });
                 } else {
-                    showToast('❌ Koneksi Spreadsheet gagal! Periksa API URL', 'error');
+                    throw new Error('Invalid response');
                 }
-            }, 1500);
+            })
+            .catch(function(err) {
+                showToast('❌ Koneksi Spreadsheet gagal: ' + err.message, 'error');
+                setState('isSpreadsheetConnected', false, { publish: true, sync: true });
+            })
+            .finally(function() {
+                updateStatusIndicators();
+            });
         });
 
-        document.getElementById('saveSensorBtn').addEventListener('click', function() {
-            var tempOff = document.getElementById('tempOffset').value;
-            var humOff = document.getElementById('humOffset').value;
-            state.tempOffset = parseFloat(tempOff) || 0;
-            state.humOffset = parseFloat(humOff) || 0;
-            publishSettings();
-            showToast('Kalibrasi sensor disimpan: Suhu ' + tempOff + '°C, Kelembaban ' + humOff + '%', 'success');
+        document.getElementById('scanWifiBtn').addEventListener('click', function() {
+            showToast('🔍 Scanning jaringan WiFi... (simulasi)', 'info');
+            setTimeout(function() {
+                showToast('Ditemukan 5 jaringan WiFi', 'success');
+            }, 1500);
         });
 
         document.getElementById('calibrateSensorBtn').addEventListener('click', function() {
@@ -1514,97 +1603,151 @@
             }, 2000);
         });
 
-        document.getElementById('saveAlarmBtn').addEventListener('click', function() {
-            var tempMax = document.getElementById('alarmTempMax').value;
-            var tempMin = document.getElementById('alarmTempMin').value;
-            state.alarmTempMax = parseFloat(tempMax) || 32;
-            state.alarmTempMin = parseFloat(tempMin) || 24;
-            publishSettings();
-            showToast('Alarm disimpan: Suhu ' + tempMin + '°C - ' + tempMax + '°C', 'success');
-        });
-
-        document.getElementById('saveUserBtn').addEventListener('click', function() {
-            var username = document.getElementById('userUsername').value;
-            state.userUsername = username;
-            publishSettings();
-            showToast('Pengguna ' + username + ' berhasil diperbarui', 'success');
-        });
-
         document.getElementById('logoutBtn').addEventListener('click', function() {
             showToast('🔓 Logout berhasil', 'info');
         });
 
         // =============================================================
-        // 12. SINKRONISASI DARI SyncModule
+        // 13. CLOCK & SIDEBAR
+        // =============================================================
+        function updateClock() {
+            document.getElementById('clock').textContent = formatTime();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        var menuToggle = document.getElementById('menuToggle');
+        var sidebar = document.getElementById('sidebar');
+        menuToggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+        });
+        document.addEventListener('click', function(e) {
+            if (window.innerWidth <= 1024 && !sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+                sidebar.classList.remove('open');
+            }
+        });
+
+        // =============================================================
+        // 14. SINKRONISASI DARI SyncModule
         // =============================================================
         if (typeof SyncModule !== 'undefined') {
             SyncModule.setOnStateChange(function(syncState) {
-                // Update state dari sync
-                if (syncState.systemName !== undefined) state.systemName = syncState.systemName;
-                if (syncState.samplingInterval !== undefined) state.samplingInterval = syncState.samplingInterval;
-                if (syncState.defaultMode !== undefined) state.defaultMode = syncState.defaultMode;
-                if (syncState.mqttBroker !== undefined) state.mqttBroker = syncState.mqttBroker;
-                if (syncState.wifiSsid !== undefined) state.wifiSsid = syncState.wifiSsid;
-                if (syncState.sheetApiUrl !== undefined) state.sheetApiUrl = syncState.sheetApiUrl;
-                if (syncState.tempOffset !== undefined) state.tempOffset = syncState.tempOffset;
-                if (syncState.humOffset !== undefined) state.humOffset = syncState.humOffset;
-                if (syncState.alarmTempMax !== undefined) state.alarmTempMax = syncState.alarmTempMax;
-                if (syncState.alarmTempMin !== undefined) state.alarmTempMin = syncState.alarmTempMin;
-                if (syncState.userUsername !== undefined) state.userUsername = syncState.userUsername;
-                updateUIFromState();
+                // Jika ada perubahan settings di syncState, update UI
+                if (syncState.settings) {
+                    updateUIFromSettings();
+                }
+                updateStatusIndicators();
             });
         }
 
         // =============================================================
-        // 13. INIT
+        // 15. INITIALIZATION
         // =============================================================
         function init() {
-            if (state.initialized) return;
-            state.initialized = true;
+            if (initialized) return;
+            initialized = true;
 
+            // Tunggu Core siap
+            if (typeof Core === 'undefined' || !Core.initialized) {
+                setTimeout(init, 500);
+                return;
+            }
+
+            stateManager = Core.getStateManager ? Core.getStateManager() : null;
+            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
+            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+
+            if (!stateManager) {
+                console.warn('StateManager tidak tersedia, gunakan fallback');
+                stateManager = {
+                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
+                    set: function(key, value) {
+                        window.__fallbackState = window.__fallbackState || {};
+                        window.__fallbackState[key] = value;
+                    },
+                    addListener: function() {}
+                };
+                window.__fallbackState = { settings: {} };
+            }
+
+            // Inisialisasi Core jika belum
+            if (typeof Core.init === 'function' && !Core.initialized) {
+                Core.init({
+                    config: {
+                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
+                    },
+                    telegram: {
+                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
+                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
+                    }
+                });
+                // Re-get managers setelah init
+                stateManager = Core.getStateManager ? Core.getStateManager() : stateManager;
+                mqttManager = Core.getMqttManager ? Core.getMqttManager() : mqttManager;
+            }
+
+            // Subscribe ke perubahan state via StateManager
+            if (stateManager && typeof stateManager.addListener === 'function') {
+                stateManager.addListener('*', function(key, value, oldValue) {
+                    if (key === 'settings') {
+                        updateUIFromSettings();
+                    }
+                    updateStatusIndicators();
+                });
+            }
+
+            // Gunakan SyncModule untuk sinkronisasi antar user
+            if (syncModule && typeof syncModule.subscribeState === 'function') {
+                syncModule.subscribeState(mqttManager);
+                syncModule.setOnStateChange(function(state) {
+                    if (state.settings) {
+                        updateUIFromSettings();
+                    }
+                    updateStatusIndicators();
+                });
+            }
+
+            // Load settings from state
+            var settings = getSettings();
+            if (Object.keys(settings).length === 0) {
+                // Inisialisasi dengan default
+                setSettings(DEFAULT_SETTINGS, { publish: false, sync: false });
+            }
+            updateUIFromSettings();
+
+            // Update status indikator awal
             updateStatusIndicators();
-            connectMQTT();
 
-            // Update UI dengan default state
-            updateUIFromState();
-
-            // Loading hilang dalam 1 detik
-            setTimeout(function() {
-                var ls = document.getElementById('loading-screen');
-                if (ls) ls.classList.add('hide');
-            }, 1000);
+            // Sembunyikan loading
+            var loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                setTimeout(function() { loadingScreen.classList.add('hide'); }, 800);
+            }
 
             // Auto refresh status
             setInterval(function() {
-                if (!state.mqttConnected && mqttClient) {
-                    try { mqttClient.reconnect(); } catch (e) {}
-                }
                 updateStatusIndicators();
             }, 10000);
 
-            // Publish status setiap 15 detik
-            setInterval(function() {
-                if (state.mqttConnected && mqttClient) {
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
-                        dashboard: 'online',
-                        timestamp: new Date().toISOString(),
-                    }));
-                }
-            }, 15000);
-
-            showToast('⚙ Settings siap', 'success');
-            console.log('⚙ Settings Page Loaded');
+            showToast('⚙ Settings siap dengan Core System', 'success');
+            console.log('⚙ Settings menggunakan Core System v3.0');
         }
 
+        // =============================================================
+        // 16. START
+        // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            init();
+            setTimeout(init, 300);
         }
 
-        // Ekspos untuk debug
-        window.__state = state;
+        // Ekspos untuk debugging
+        window.__settings = getSettings;
         window.__publishSettings = publishSettings;
+        window.__stateManager = stateManager;
+        window.__syncModule = syncModule;
+        console.log('⚙ Settings siap, menunggu Core System...');
     </script>
 
 </body>

@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fuzzy PID - IoT Kandang Ulat Hongkong</title>
+    <link rel="icon" href="assets/img/logo.png" type="image/png" alt="smart-iot">
     <script src="https://cdn.tailwindcss.com">
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -13,6 +14,10 @@
     <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
     </script>
     <script src="assets/js/sync.js">
+    </script>
+    <script src="assets/js/mqtt-config.js">
+    </script>
+    <script src="assets/js/core.js">
     </script>
     <style>
         /* ===== RESET & BASE ===== */
@@ -93,7 +98,8 @@
             opacity: 0;
             transition: opacity 0.25s;
         }
-        .sidebar:hover .logo span {
+        .sidebar:hover .logo span,
+        .sidebar.open .logo span {
             opacity: 1;
         }
         .sidebar .nav {
@@ -125,7 +131,8 @@
             opacity: 0;
             transition: opacity 0.25s;
         }
-        .sidebar:hover .nav a span {
+        .sidebar:hover .nav a span,
+        .sidebar.open .nav a span {
             opacity: 1;
         }
         .sidebar .nav a:hover {
@@ -851,7 +858,7 @@
             <a href="about.html"><i class="fas fa-user"></i><span>About</span></a>
         </nav>
         <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:#4a5268;text-align:center;">
-            v2.0.0
+            v3.0.0
         </div>
     </aside>
 
@@ -1038,7 +1045,7 @@
 
         <!-- ===== FOOTER ===== -->
         <div class="text-center text-xs text-gray-500 mt-8 border-t border-white/5 pt-4">
-            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v2.0.0
+            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v3.0.0
         </div>
     </div>
 
@@ -1049,59 +1056,34 @@
     <!-- ===== JAVASCRIPT ===== -->
     <script>
         // =============================================================
-        // 1. CONFIGURATION
+        // 1. KONFIGURASI UNTUK CORE
         // =============================================================
-        var CONFIG = {
-            MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
-            MQTT_TOPICS: {
-                FUZZY_STATUS: 'fuzzy/status',
-                SETTING_UPDATE: 'setting/update',
-                SENSOR_SHT31: 'sensor/sht31',
-                ACTUATOR_STATUS: 'actuator/status',
-                SYSTEM_STATE: 'system/state',
-                SYSTEM_CONTROL: 'system/control',
-            },
-            INTERVAL_SAMPLE: 2000,
+        var APP_CONFIG = {
+            SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzomrIc68ISrGNVsOTgYI3nPy0kBgQm4WVUCYWfkB8lcwXgBJPbu2j3yxFhoz59VZk9Xw/exec',
+            TELEGRAM_BOT_TOKEN: 'YOUR_BOT_TOKEN',
+            TELEGRAM_CHAT_ID: 'YOUR_CHAT_ID',
         };
 
         // =============================================================
-        // 2. STATE
+        // 2. STATE REFERENCE (dari Core)
         // =============================================================
-        var state = {
-            setpointTemp: 27.5,
-            setpointHum: 75,
-            error: 0,
-            deltaError: 0,
-            kp: 2.0,
-            ki: 0.5,
-            kd: 0.1,
-            outputPid: 0,
-            temp: null,
-            hum: null,
-            nh3: null,
-            mqttConnected: false,
-            wifiConnected: true,
-            sheetConnected: true,
-            rules: [],
-            mfError: [],
-            mfDelta: [],
-            mfOutput: [],
-            chartData: { labels: [], kp: [], ki: [], kd: [], output: [], error: [] },
-            dataReceived: false,
-            _lastError: 0,
-            _integral: 0,
-        };
+        var stateManager = null;
+        var mqttManager = null;
+        var syncModule = null;
+        var chart = null;
+        var chartData = { labels: [], kp: [], ki: [], kd: [], output: [], error: [] };
+        var initialized = false;
+        var updateInterval = null;
 
         // =============================================================
-        // 3. UTILITY
+        // 3. UTILITY FUNCTIONS
         // =============================================================
-        function formatTime(d) { d = d || new Date(); return d.toLocaleTimeString('id-ID', { hour12: false }); }
+        function formatTime(d) {
+            d = d || new Date();
+            return d.toLocaleTimeString('id-ID', { hour12: false });
+        }
 
         function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
-
-        function randomBetween(min, max) { return Math.random() * (max - min) + min; }
-
-        function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
         function safeNumber(value, fallback) {
             fallback = fallback || 0;
@@ -1111,12 +1093,14 @@
 
         function formatValue(value, digits) {
             digits = digits || 1;
-            var num = safeNumber(value, Number.NaN);
-            return Number.isNaN(num) ? '---' : num.toFixed(digits);
+            if (value === null || value === undefined || Number.isNaN(Number(value))) {
+                return '---';
+            }
+            return Number(value).toFixed(digits);
         }
 
         // =============================================================
-        // 4. TOAST
+        // 4. TOAST & UI HELPERS
         // =============================================================
         function showToast(message, type, duration) {
             type = type || 'info';
@@ -1141,350 +1125,166 @@
             }, duration);
         }
 
-        // =============================================================
-        // 5. CLOCK & SIDEBAR TOGGLE
-        // =============================================================
-        function updateClock() {
-            document.getElementById('clock').textContent = formatTime();
-        }
-        setInterval(updateClock, 1000);
-        updateClock();
-
-        var menuToggle = document.getElementById('menuToggle');
-        var sidebar = document.getElementById('sidebar');
-
-        function setSidebarOpen(open) {
-            if (window.innerWidth <= 1024) {
-                sidebar.classList.toggle('open', open);
+        function addNotification(message, type) {
+            type = type || 'info';
+            if (stateManager && typeof stateManager.update === 'function') {
+                var notifs = stateManager.get('notifications') || [];
+                notifs.unshift({ message: message, type: type, time: formatTime() });
+                if (notifs.length > 50) notifs.pop();
+                stateManager.set('notifications', notifs, { publish: true, sync: true });
             } else {
-                sidebar.classList.remove('open');
+                showToast(message, type);
             }
         }
 
-        menuToggle.addEventListener('click', function(e) {
-            e.stopPropagation();
-            setSidebarOpen(!sidebar.classList.contains('open'));
-        });
-        document.addEventListener('click', function(e) {
-            if (window.innerWidth <= 1024) {
-                if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
-                    setSidebarOpen(false);
+        // =============================================================
+        // 5. GET STATE FROM CORE
+        // =============================================================
+        function getState(key) {
+            if (stateManager) {
+                if (typeof stateManager.get === 'function') {
+                    return stateManager.get(key);
+                }
+                if (stateManager.state && stateManager.state[key] !== undefined) {
+                    return stateManager.state[key];
                 }
             }
-        });
-        window.addEventListener('resize', function() {
-            if (window.innerWidth > 1024) {
-                setSidebarOpen(false);
-            }
-        });
+            return null;
+        }
 
-        // =============================================================
-        // 6. MQTT
-        // =============================================================
-        var mqttClient = null;
-
-        function connectMQTT() {
-            try {
-                mqttClient = mqtt.connect(CONFIG.MQTT_BROKER, {
-                    clientId: 'fuzzy_' + uid(),
-                    clean: true,
-                    reconnectPeriod: 3000,
-                });
-                mqttClient.on('connect', function() {
-                    state.mqttConnected = true;
-                    updateStatusIndicators();
-                    showToast('MQTT Terhubung', 'success');
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_STATE);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.FUZZY_STATUS);
-                    // Subscribe ke sync state
-                    if (typeof SyncModule !== 'undefined') {
-                        SyncModule.subscribeState(mqttClient);
-                    }
-                    // Kirim status online
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
-                        command: 'dashboard_online',
-                        timestamp: new Date().toISOString()
-                    }));
-                    // Minta status fuzzy dari ESP
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.FUZZY_STATUS, JSON.stringify({
-                        request: 'status'
-                    }));
-                });
-                mqttClient.on('message', function(topic, payload) {
-                    try {
-                        var data = JSON.parse(payload.toString());
-                        handleMqttMessage(topic, data);
-                    } catch (e) { /* ignore */ }
-                });
-                mqttClient.on('close', function() {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                    showToast('MQTT Terputus', 'error');
-                });
-                mqttClient.on('error', function() {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                });
-            } catch (e) {
-                state.mqttConnected = false;
-                updateStatusIndicators();
+        function setState(key, value, options) {
+            options = options || { publish: true, sync: true };
+            if (stateManager) {
+                if (typeof stateManager.set === 'function') {
+                    stateManager.set(key, value, options);
+                } else if (typeof stateManager.update === 'function') {
+                    var updates = {};
+                    updates[key] = value;
+                    stateManager.update(updates, options);
+                }
             }
         }
 
+        // =============================================================
+        // 6. PUBLISH VIA CORE
+        // =============================================================
         function publishFuzzyStatus() {
-            if (!mqttClient || !mqttClient.connected) return;
             var data = {
-                setpointTemp: state.setpointTemp,
-                setpointHum: state.setpointHum,
-                error: state.error,
-                deltaError: state.deltaError,
-                kp: state.kp,
-                ki: state.ki,
-                kd: state.kd,
-                output: state.outputPid,
-                rules: state.rules,
-                mfError: state.mfError,
-                mfDelta: state.mfDelta,
-                mfOutput: state.mfOutput,
+                setpointTemp: getState('setpointTemp') || 27.5,
+                setpointHum: getState('setpointHum') || 75,
+                error: getState('error') || 0,
+                deltaError: getState('deltaError') || 0,
+                kp: getState('kp') || 2.0,
+                ki: getState('ki') || 0.5,
+                kd: getState('kd') || 0.1,
+                output: getState('outputPid') || 0,
+                rules: getState('rules') || [],
+                mfError: getState('mfError') || [],
+                mfDelta: getState('mfDelta') || [],
+                mfOutput: getState('mfOutput') || [],
             };
-            mqttClient.publish(CONFIG.MQTT_TOPICS.FUZZY_STATUS, JSON.stringify(data));
+            if (mqttManager && typeof mqttManager.publish === 'function') {
+                mqttManager.publish('fuzzy/status', data);
+            }
+            if (syncModule && typeof syncModule.updateLocalState === 'function') {
+                syncModule.updateLocalState(data, mqttManager);
+            }
         }
 
-        function handleMqttMessage(topic, data) {
-            var updated = false;
-
-            switch (topic) {
-                case CONFIG.MQTT_TOPICS.FUZZY_STATUS:
-                    if (data.setpointTemp !== undefined) { state.setpointTemp = data.setpointTemp;
-                        updated = true; }
-                    if (data.setpointHum !== undefined) { state.setpointHum = data.setpointHum;
-                        updated = true; }
-                    if (data.error !== undefined) { state.error = data.error;
-                        updated = true; }
-                    if (data.deltaError !== undefined) { state.deltaError = data.deltaError;
-                        updated = true; }
-                    if (data.kp !== undefined) { state.kp = data.kp;
-                        updated = true; }
-                    if (data.ki !== undefined) { state.ki = data.ki;
-                        updated = true; }
-                    if (data.kd !== undefined) { state.kd = data.kd;
-                        updated = true; }
-                    if (data.output !== undefined) { state.outputPid = data.output;
-                        updated = true; }
-                    if (data.rules !== undefined) { state.rules = data.rules;
-                        updated = true; }
-                    if (data.mfError !== undefined) { state.mfError = data.mfError;
-                        updated = true; }
-                    if (data.mfDelta !== undefined) { state.mfDelta = data.mfDelta;
-                        updated = true; }
-                    if (data.mfOutput !== undefined) { state.mfOutput = data.mfOutput;
-                        updated = true; }
-                    break;
-
-                case CONFIG.MQTT_TOPICS.SENSOR_SHT31:
-                    if (data.temperature !== undefined) {
-                        state.temp = data.temperature;
-                        // Recalculate error
-                        state.error = state.setpointTemp - state.temp;
-                        state.deltaError = (state.error - state._lastError) / 2;
-                        state._lastError = state.error;
-                        updated = true;
-                    }
-                    if (data.humidity !== undefined) { state.hum = data.humidity;
-                        updated = true; }
-                    break;
-
-                case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
-                    if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
-                    if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
-                    if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
-                    if (data.peltierOn !== undefined) state.peltierOn = data.peltierOn;
-                    if (data.fanOn !== undefined) state.fanOn = data.fanOn;
-                    if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
-                    if (data.mode !== undefined) state.mode = data.mode;
-                    break;
-
-                case CONFIG.MQTT_TOPICS.SYSTEM_STATE:
-                    if (typeof SyncModule !== 'undefined') {
-                        SyncModule.handleStateMessage(topic, JSON.stringify(data));
-                    }
-                    // Update local state from sync
-                    if (data.kp !== undefined) { state.kp = data.kp;
-                        updated = true; }
-                    if (data.ki !== undefined) { state.ki = data.ki;
-                        updated = true; }
-                    if (data.kd !== undefined) { state.kd = data.kd;
-                        updated = true; }
-                    if (data.setpointTemp !== undefined) { state.setpointTemp = data.setpointTemp;
-                        updated = true; }
-                    if (data.setpointHum !== undefined) { state.setpointHum = data.setpointHum;
-                        updated = true; }
-                    break;
-
-                default:
-                    break;
+        function publishTuning() {
+            var data = {
+                kp: getState('kp') || 2.0,
+                ki: getState('ki') || 0.5,
+                kd: getState('kd') || 0.1,
+                setpointTemp: getState('setpointTemp') || 27.5,
+                setpointHum: getState('setpointHum') || 75,
+            };
+            if (mqttManager && typeof mqttManager.publish === 'function') {
+                mqttManager.publish('setting/update', data);
             }
-
-            if (updated) {
-                state.dataReceived = true;
-                updateAllUI();
-                updateChartData();
-                // Sembunyikan loading
-                var ls = document.getElementById('loading-screen');
-                if (ls) ls.classList.add('hide');
+            if (syncModule && typeof syncModule.updateLocalState === 'function') {
+                syncModule.updateLocalState(data, mqttManager);
             }
         }
 
         // =============================================================
-        // 7. SIMULASI (jika tidak ada data dari MQTT)
-        // =============================================================
-        var simInterval = null;
-
-        function startSimulation() {
-            if (simInterval) return;
-            simInterval = setInterval(function() {
-                // Hanya jalan jika belum ada data dari MQTT
-                if (state.dataReceived) {
-                    // Jika sudah ada data dari MQTT, matikan simulasi
-                    if (simInterval) { clearInterval(simInterval);
-                        simInterval = null; }
-                    return;
-                }
-
-                // Simulasi dummy
-                state.temp += randomBetween(-0.15, 0.15);
-                state.temp = clamp(state.temp, 24, 32);
-                state.hum += randomBetween(-0.3, 0.3);
-                state.hum = clamp(state.hum, 55, 92);
-
-                state.error = state.setpointTemp - state.temp;
-                state.deltaError = (state.error - state._lastError) / 2;
-                state._lastError = state.error;
-
-                // Simulasi PID
-                var p = state.kp * state.error;
-                var i = state.ki * state._integral + 0.01 * state.error;
-                state._integral = state._integral + state.error * 2 / 1000;
-                state._integral = clamp(state._integral, -10, 10);
-                var d = state.kd * state.deltaError;
-                state.outputPid = clamp(p + i + d, -100, 100);
-
-                // Simulasi rules
-                var absE = Math.abs(state.error);
-                var absDE = Math.abs(state.deltaError);
-                state.mfError = [];
-                state.mfDelta = [];
-                state.mfOutput = [];
-                if (absE < 0.5) { state.mfError.push('Z');
-                    state.mfOutput.push('Z'); }
-                if (absE > 0.3 && absE < 1.5) { state.mfError.push('PS');
-                    state.mfOutput.push('PS'); }
-                if (absE > 1.0) { state.mfError.push('PB');
-                    state.mfOutput.push('PB'); }
-                if (absE < -0.3 && absE > -1.5) { state.mfError.push('NS');
-                    state.mfOutput.push('NS'); }
-                if (absE < -1.0) { state.mfError.push('NB');
-                    state.mfOutput.push('NB'); }
-                if (absDE < 0.1) state.mfDelta.push('Z');
-                if (absDE > 0.05 && absDE < 0.3) state.mfDelta.push('PS');
-                if (absDE > 0.2) state.mfDelta.push('PB');
-                if (absDE < -0.05 && absDE > -0.3) state.mfDelta.push('NS');
-                if (absDE < -0.2) state.mfDelta.push('NB');
-                if (state.mfError.length === 0) state.mfError.push('Z');
-                if (state.mfDelta.length === 0) state.mfDelta.push('Z');
-                if (state.mfOutput.length === 0) state.mfOutput.push('Z');
-
-                state.rules = [
-                    { condition: 'IF error Z AND delta Z THEN Kp Z', weight: 1.0, active: state.mfError.includes('Z') &&
-                            state.mfDelta.includes('Z') },
-                    { condition: 'IF error PS AND delta Z THEN Kp PS', weight: 0.8, active: state.mfError.includes(
-                            'PS') && state.mfDelta.includes('Z') },
-                    { condition: 'IF error NS AND delta Z THEN Kp NS', weight: 0.8, active: state.mfError.includes(
-                            'NS') && state.mfDelta.includes('Z') },
-                    { condition: 'IF error Z AND delta PS THEN Ki PS', weight: 0.7, active: state.mfError.includes(
-                            'Z') && state.mfDelta.includes('PS') },
-                    { condition: 'IF error Z AND delta NS THEN Ki NS', weight: 0.7, active: state.mfError.includes(
-                            'Z') && state.mfDelta.includes('NS') },
-                    { condition: 'IF error PS AND delta NS THEN Kd PS', weight: 0.6, active: state.mfError.includes(
-                            'PS') && state.mfDelta.includes('NS') },
-                    { condition: 'IF error NS AND delta PS THEN Kd NS', weight: 0.6, active: state.mfError.includes(
-                            'NS') && state.mfDelta.includes('PS') },
-                ];
-
-                updateAllUI();
-                updateChartData();
-            }, CONFIG.INTERVAL_SAMPLE);
-        }
-
-        // =============================================================
-        // 8. UI UPDATE
+        // 7. UI UPDATE FUNCTIONS
         // =============================================================
         function updateStatusIndicators() {
+            var mqttConnected = getState('isMqttConnected') || false;
+            var wifiConnected = getState('wifiStatus') === 'online' || true;
+            var sheetConnected = getState('isSpreadsheetConnected') || false;
+
             var setDot = function(id, online) {
                 var el = document.getElementById(id);
-                if (el) el.className = 'dot ' + (online ? 'online' : 'offline');
+                if (el) { el.className = 'dot ' + (online ? 'online' : 'offline'); }
             };
-            setDot('wifiDot', state.wifiConnected);
-            setDot('mqttDot', state.mqttConnected);
-            setDot('sheetDot', state.sheetConnected);
+            setDot('wifiDot', wifiConnected);
+            setDot('mqttDot', mqttConnected);
+            setDot('sheetDot', sheetConnected);
         }
 
         function updateAllUI() {
             // Setpoint
+            var setpointTemp = getState('setpointTemp') || 27.5;
+            var setpointHum = getState('setpointHum') || 75;
             var spTemp = document.getElementById('setpointTempDisplay');
-            if (spTemp) spTemp.textContent = formatValue(state.setpointTemp, 1) + ' °C';
+            if (spTemp) spTemp.textContent = formatValue(setpointTemp, 1) + ' °C';
             var spHum = document.getElementById('setpointHumDisplay');
-            if (spHum) spHum.textContent = formatValue(state.setpointHum, 0) + ' %';
+            if (spHum) spHum.textContent = formatValue(setpointHum, 0) + ' %';
 
             // Error
+            var error = getState('error') || 0;
             var errEl = document.getElementById('errorDisplay');
             if (errEl) {
-                var errVal = safeNumber(state.error, 0);
-                errEl.innerHTML = formatValue(state.error, 2) + ' <span class="unit">°C</span>';
+                var errVal = safeNumber(error, 0);
+                errEl.innerHTML = formatValue(error, 2) + ' <span class="unit">°C</span>';
                 errEl.className = 'value ' + (Math.abs(errVal) > 2 ? 'danger' : Math.abs(errVal) > 1 ? 'warning' :
                 'normal');
             }
 
-            // Delta Error
+            var deltaError = getState('deltaError') || 0;
             var deltaEl = document.getElementById('deltaErrorDisplay');
             if (deltaEl) {
-                var deltaVal = safeNumber(state.deltaError, 0);
-                deltaEl.innerHTML = formatValue(state.deltaError, 2) + ' <span class="unit">°C/s</span>';
+                var deltaVal = safeNumber(deltaError, 0);
+                deltaEl.innerHTML = formatValue(deltaError, 2) + ' <span class="unit">°C/s</span>';
                 deltaEl.className = 'value ' + (Math.abs(deltaVal) > 0.5 ? 'danger' : Math.abs(deltaVal) > 0.2 ?
                     'warning' : 'normal');
             }
 
             // PID
+            var kp = getState('kp') || 2.0;
+            var ki = getState('ki') || 0.5;
+            var kd = getState('kd') || 0.1;
+            var outputPid = getState('outputPid') || 0;
             var kpD = document.getElementById('kpDisplay');
-            if (kpD) kpD.textContent = formatValue(state.kp, 2);
+            if (kpD) kpD.textContent = formatValue(kp, 2);
             var kiD = document.getElementById('kiDisplay');
-            if (kiD) kiD.textContent = formatValue(state.ki, 2);
+            if (kiD) kiD.textContent = formatValue(ki, 2);
             var kdD = document.getElementById('kdDisplay');
-            if (kdD) kdD.textContent = formatValue(state.kd, 2);
+            if (kdD) kdD.textContent = formatValue(kd, 2);
             var outD = document.getElementById('outputDisplay');
-            if (outD) outD.innerHTML = formatValue(state.outputPid, 1) + ' <span class="unit">%</span>';
+            if (outD) outD.innerHTML = formatValue(outputPid, 1) + ' <span class="unit">%</span>';
 
             // Sliders
             var kpS = document.getElementById('kpSlider');
-            if (kpS) { kpS.value = safeNumber(state.kp, 0); }
+            if (kpS) { kpS.value = safeNumber(kp, 0); }
             var kpSD = document.getElementById('kpSliderDisplay');
-            if (kpSD) kpSD.textContent = formatValue(state.kp, 1);
+            if (kpSD) kpSD.textContent = formatValue(kp, 1);
             var kiS = document.getElementById('kiSlider');
-            if (kiS) { kiS.value = safeNumber(state.ki, 0); }
+            if (kiS) { kiS.value = safeNumber(ki, 0); }
             var kiSD = document.getElementById('kiSliderDisplay');
-            if (kiSD) kiSD.textContent = formatValue(state.ki, 1);
+            if (kiSD) kiSD.textContent = formatValue(ki, 1);
             var kdS = document.getElementById('kdSlider');
-            if (kdS) { kdS.value = safeNumber(state.kd, 0); }
+            if (kdS) { kdS.value = safeNumber(kd, 0); }
             var kdSD = document.getElementById('kdSliderDisplay');
-            if (kdSD) kdSD.textContent = formatValue(state.kd, 2);
+            if (kdSD) kdSD.textContent = formatValue(kd, 2);
 
             // Rules
+            var rules = getState('rules') || [];
+            var activeRules = rules.filter(function(r) { return r.active; });
             var ruleList = document.getElementById('ruleList');
             var ruleCount = document.getElementById('ruleCount');
-            var rules = state.rules || [];
-            var activeRules = rules.filter(function(r) { return r.active; });
             if (ruleCount) ruleCount.textContent = activeRules.length + ' aturan';
             if (ruleList) {
                 if (activeRules.length === 0) {
@@ -1504,35 +1304,35 @@
             }
 
             // MF Error
+            var mfError = getState('mfError') || [];
             var mfErrorContainer = document.getElementById('mfError');
             if (mfErrorContainer) {
                 var items = mfErrorContainer.querySelectorAll('.mf-item');
-                var mfErr = state.mfError || [];
                 items.forEach(function(el) {
                     var label = el.textContent.trim();
-                    el.classList.toggle('active', mfErr.indexOf(label) !== -1);
+                    el.classList.toggle('active', mfError.indexOf(label) !== -1);
                 });
             }
 
             // MF Delta
+            var mfDelta = getState('mfDelta') || [];
             var mfDeltaContainer = document.getElementById('mfDelta');
             if (mfDeltaContainer) {
                 var items = mfDeltaContainer.querySelectorAll('.mf-item');
-                var mfDel = state.mfDelta || [];
                 items.forEach(function(el) {
                     var label = el.textContent.trim();
-                    el.classList.toggle('active', mfDel.indexOf(label) !== -1);
+                    el.classList.toggle('active', mfDelta.indexOf(label) !== -1);
                 });
             }
 
             // MF Output
+            var mfOutput = getState('mfOutput') || [];
             var mfOutputContainer = document.getElementById('mfOutput');
             if (mfOutputContainer) {
                 var items = mfOutputContainer.querySelectorAll('.mf-item');
-                var mfOut = state.mfOutput || [];
                 items.forEach(function(el) {
                     var label = el.textContent.trim();
-                    el.classList.toggle('active', mfOut.indexOf(label) !== -1);
+                    el.classList.toggle('active', mfOutput.indexOf(label) !== -1);
                 });
             }
 
@@ -1542,62 +1342,66 @@
         }
 
         // =============================================================
-        // 9. LIVE TUNING
+        // 8. LIVE TUNING
         // =============================================================
         document.getElementById('kpSlider').addEventListener('input', function() {
             var val = parseFloat(this.value);
             document.getElementById('kpSliderDisplay').textContent = val.toFixed(1);
-            state.kp = val;
+            setState('kp', val, { publish: false, sync: false });
         });
+
         document.getElementById('kiSlider').addEventListener('input', function() {
             var val = parseFloat(this.value);
             document.getElementById('kiSliderDisplay').textContent = val.toFixed(1);
-            state.ki = val;
+            setState('ki', val, { publish: false, sync: false });
         });
+
         document.getElementById('kdSlider').addEventListener('input', function() {
             var val = parseFloat(this.value);
             document.getElementById('kdSliderDisplay').textContent = val.toFixed(2);
-            state.kd = val;
+            setState('kd', val, { publish: false, sync: false });
         });
 
         document.getElementById('applyTuningBtn').addEventListener('click', function() {
+            var kp = getState('kp') || 2.0;
+            var ki = getState('ki') || 0.5;
+            var kd = getState('kd') || 0.1;
+            var setpointTemp = getState('setpointTemp') || 27.5;
+            var setpointHum = getState('setpointHum') || 75;
+
             var data = {
-                kp: state.kp,
-                ki: state.ki,
-                kd: state.kd,
-                setpointTemp: state.setpointTemp,
-                setpointHum: state.setpointHum,
+                kp: kp,
+                ki: ki,
+                kd: kd,
+                setpointTemp: setpointTemp,
+                setpointHum: setpointHum,
             };
-            if (state.mqttConnected && mqttClient) {
-                mqttClient.publish(CONFIG.MQTT_TOPICS.SETTING_UPDATE, JSON.stringify(data));
-                // Sinkronisasi ke user lain
-                if (typeof SyncModule !== 'undefined') {
-                    SyncModule.updateLocalState(data, mqttClient);
-                }
-                // Kirim status fuzzy
-                publishFuzzyStatus();
-                showToast('Tuning diterapkan: Kp=' + state.kp.toFixed(1) + ', Ki=' + state.ki.toFixed(1) + ', Kd=' + state
-                    .kd.toFixed(2), 'success');
-            } else {
-                showToast('MQTT tidak terhubung, tuning hanya di dashboard', 'warning');
+
+            // Set ke Core dengan publish & sync
+            for (var key in data) {
+                setState(key, data[key], { publish: true, sync: true });
             }
+
+            publishTuning();
+            publishFuzzyStatus();
+
+            showToast('Tuning diterapkan: Kp=' + kp.toFixed(1) + ', Ki=' + ki.toFixed(1) + ', Kd=' + kd.toFixed(2),
+                'success');
             updateAllUI();
         });
 
         // =============================================================
-        // 10. CHART
+        // 9. CHART
         // =============================================================
-        var chart = null;
-
         function initChart() {
             var ctx = document.getElementById('fuzzyChart').getContext('2d');
             chart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: state.chartData.labels,
+                    labels: chartData.labels,
                     datasets: [{
                         label: 'Kp',
-                        data: state.chartData.kp,
+                        data: chartData.kp,
                         borderColor: '#2a9d8f',
                         backgroundColor: 'rgba(42,157,143,0.05)',
                         borderWidth: 2,
@@ -1606,7 +1410,7 @@
                         fill: true,
                     }, {
                         label: 'Ki',
-                        data: state.chartData.ki,
+                        data: chartData.ki,
                         borderColor: '#3498db',
                         backgroundColor: 'rgba(52,152,219,0.05)',
                         borderWidth: 2,
@@ -1615,7 +1419,7 @@
                         fill: true,
                     }, {
                         label: 'Kd',
-                        data: state.chartData.kd,
+                        data: chartData.kd,
                         borderColor: '#f1c40f',
                         backgroundColor: 'rgba(241,196,15,0.05)',
                         borderWidth: 2,
@@ -1624,7 +1428,7 @@
                         fill: true,
                     }, {
                         label: 'Output PID',
-                        data: state.chartData.output,
+                        data: chartData.output,
                         borderColor: '#e74c3c',
                         backgroundColor: 'rgba(231,76,60,0.05)',
                         borderWidth: 1.5,
@@ -1633,7 +1437,7 @@
                         fill: true,
                     }, {
                         label: 'Error',
-                        data: state.chartData.error,
+                        data: chartData.error,
                         borderColor: '#e67e22',
                         borderWidth: 1.5,
                         pointRadius: 0,
@@ -1681,33 +1485,40 @@
             if (!chart) return;
             var now = formatTime();
             var maxPoints = 200;
-            state.chartData.labels.push(now);
-            state.chartData.kp.push(state.kp);
-            state.chartData.ki.push(state.ki);
-            state.chartData.kd.push(state.kd);
-            state.chartData.output.push(state.outputPid);
-            state.chartData.error.push(state.error);
 
-            if (state.chartData.labels.length > maxPoints) {
-                state.chartData.labels.shift();
-                state.chartData.kp.shift();
-                state.chartData.ki.shift();
-                state.chartData.kd.shift();
-                state.chartData.output.shift();
-                state.chartData.error.shift();
+            var kp = getState('kp') || 2.0;
+            var ki = getState('ki') || 0.5;
+            var kd = getState('kd') || 0.1;
+            var output = getState('outputPid') || 0;
+            var error = getState('error') || 0;
+
+            chartData.labels.push(now);
+            chartData.kp.push(kp);
+            chartData.ki.push(ki);
+            chartData.kd.push(kd);
+            chartData.output.push(output);
+            chartData.error.push(error);
+
+            if (chartData.labels.length > maxPoints) {
+                chartData.labels.shift();
+                chartData.kp.shift();
+                chartData.ki.shift();
+                chartData.kd.shift();
+                chartData.output.shift();
+                chartData.error.shift();
             }
 
-            chart.data.labels = state.chartData.labels;
-            chart.data.datasets[0].data = state.chartData.kp;
-            chart.data.datasets[1].data = state.chartData.ki;
-            chart.data.datasets[2].data = state.chartData.kd;
-            chart.data.datasets[3].data = state.chartData.output;
-            chart.data.datasets[4].data = state.chartData.error;
+            chart.data.labels = chartData.labels;
+            chart.data.datasets[0].data = chartData.kp;
+            chart.data.datasets[1].data = chartData.ki;
+            chart.data.datasets[2].data = chartData.kd;
+            chart.data.datasets[3].data = chartData.output;
+            chart.data.datasets[4].data = chartData.error;
             chart.update('none');
         }
 
         // =============================================================
-        // 11. CHART PARAM FILTER
+        // 10. CHART PARAM FILTER
         // =============================================================
         document.querySelectorAll('.btn-filter').forEach(function(btn) {
             btn.addEventListener('click', function() {
@@ -1729,89 +1540,155 @@
         });
 
         // =============================================================
-        // 12. SINKRONISASI DARI SyncModule
+        // 11. SINKRONISASI DARI SyncModule
         // =============================================================
         if (typeof SyncModule !== 'undefined') {
             SyncModule.setOnStateChange(function(syncState) {
-                // Update state dari sync
-                if (syncState.kp !== undefined) state.kp = syncState.kp;
-                if (syncState.ki !== undefined) state.ki = syncState.ki;
-                if (syncState.kd !== undefined) state.kd = syncState.kd;
-                if (syncState.setpointTemp !== undefined) state.setpointTemp = syncState.setpointTemp;
-                if (syncState.setpointHum !== undefined) state.setpointHum = syncState.setpointHum;
-                if (syncState.error !== undefined) state.error = syncState.error;
-                if (syncState.deltaError !== undefined) state.deltaError = syncState.deltaError;
-                if (syncState.outputPid !== undefined) state.outputPid = syncState.outputPid;
-                if (syncState.rules !== undefined) state.rules = syncState.rules;
-                if (syncState.mfError !== undefined) state.mfError = syncState.mfError;
-                if (syncState.mfDelta !== undefined) state.mfDelta = syncState.mfDelta;
-                if (syncState.mfOutput !== undefined) state.mfOutput = syncState.mfOutput;
-                state.dataReceived = true;
                 updateAllUI();
                 updateChartData();
-                var ls = document.getElementById('loading-screen');
-                if (ls) ls.classList.add('hide');
             });
         }
+
+        // =============================================================
+        // 12. CLOCK & SIDEBAR
+        // =============================================================
+        function updateClock() {
+            document.getElementById('clock').textContent = formatTime();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        var menuToggle = document.getElementById('menuToggle');
+        var sidebar = document.getElementById('sidebar');
+        menuToggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+        });
+        document.addEventListener('click', function(e) {
+            if (window.innerWidth <= 1024 && !sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+                sidebar.classList.remove('open');
+            }
+        });
 
         // =============================================================
         // 13. INIT
         // =============================================================
         function init() {
-            // Set initial state
-            state.setpointTemp = 27.5;
-            state.setpointHum = 75;
-            state.kp = 2.0;
-            state.ki = 0.5;
-            state.kd = 0.1;
-            state.temp = 27.3;
-            state.hum = 74.8;
-            state.error = state.setpointTemp - state.temp;
+            if (initialized) return;
+            initialized = true;
 
-            updateAllUI();
-            connectMQTT();
+            // Tunggu Core siap
+            if (typeof Core === 'undefined' || !Core.initialized) {
+                setTimeout(init, 500);
+                return;
+            }
+
+            stateManager = Core.getStateManager ? Core.getStateManager() : null;
+            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
+            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+
+            if (!stateManager) {
+                console.warn('StateManager tidak tersedia, gunakan fallback');
+                stateManager = {
+                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
+                    set: function(key, value) {
+                        window.__fallbackState = window.__fallbackState || {};
+                        window.__fallbackState[key] = value;
+                    },
+                    addListener: function() {}
+                };
+                window.__fallbackState = {
+                    setpointTemp: 27.5,
+                    setpointHum: 75,
+                    kp: 2.0,
+                    ki: 0.5,
+                    kd: 0.1,
+                    error: 0,
+                    deltaError: 0,
+                    outputPid: 0,
+                    rules: [],
+                    mfError: ['Z'],
+                    mfDelta: ['Z'],
+                    mfOutput: ['Z'],
+                };
+            }
+
+            // Inisialisasi Core jika belum
+            if (typeof Core.init === 'function' && !Core.initialized) {
+                Core.init({
+                    config: {
+                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
+                    },
+                    telegram: {
+                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
+                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
+                    }
+                });
+            }
+
+            // Subscribe ke perubahan state via StateManager
+            if (stateManager && typeof stateManager.addListener === 'function') {
+                stateManager.addListener('*', function(key, value, oldValue) {
+                    updateAllUI();
+                    updateChartData();
+                });
+            }
+
+            // Gunakan SyncModule untuk sinkronisasi antar user
+            if (syncModule && typeof syncModule.subscribeState === 'function') {
+                syncModule.subscribeState(mqttManager);
+                syncModule.setOnStateChange(function(state) {
+                    updateAllUI();
+                    updateChartData();
+                });
+            }
+
+            // Inisialisasi chart
             initChart();
-            startSimulation();
 
-            // Status update periodik
+            // Update UI pertama kali
+            updateAllUI();
+
+            // Sembunyikan loading
+            var loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                setTimeout(function() { loadingScreen.classList.add('hide'); }, 800);
+            }
+
+            // Update status periodik
             setInterval(function() {
-                if (!state.mqttConnected && mqttClient) {
-                    try { mqttClient.reconnect(); } catch (e) {}
-                }
                 updateStatusIndicators();
-                // Jika ada data dari MQTT, matikan simulasi
-                if (state.dataReceived && simInterval) {
-                    clearInterval(simInterval);
-                    simInterval = null;
-                }
             }, 10000);
 
-            // Loading screen hilang dalam 1 detik (jika belum hilang)
-            setTimeout(function() {
-                var ls = document.getElementById('loading-screen');
-                if (ls) ls.classList.add('hide');
-            }, 1000);
-
-            // Publish status fuzzy setiap 10 detik
+            // Periodik update chart
             setInterval(function() {
-                if (state.mqttConnected && mqttClient) {
-                    publishFuzzyStatus();
-                }
+                updateChartData();
+            }, 2000);
+
+            // Periodik publish status fuzzy
+            setInterval(function() {
+                publishFuzzyStatus();
             }, 10000);
 
-            showToast('🧠 Fuzzy PID siap', 'success');
-            console.log('🧠 Fuzzy PID Page Loaded');
+            addNotification('Fuzzy PID siap dengan Core System', 'success');
+            console.log('🧠 Fuzzy PID menggunakan Core System v3.0');
         }
 
+        // =============================================================
+        // 14. START
+        // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            init();
+            setTimeout(init, 300);
         }
 
-        // Ekspos untuk debug
-        window.__state = state;
-        window.__config = CONFIG;
+        // Ekspos untuk debugging
+        window.__stateManager = stateManager;
+        window.__mqttManager = mqttManager;
+        window.__syncModule = syncModule;
+        window.__publishFuzzyStatus = publishFuzzyStatus;
+        window.__publishTuning = publishTuning;
+        console.log('🧠 Fuzzy PID siap, menunggu Core System...');
     </script>
 
 </body>

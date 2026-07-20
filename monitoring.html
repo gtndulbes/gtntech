@@ -19,6 +19,7 @@
     </script>
     <script src="assets/js/core.js">
     </script>
+    <!-- STYLE (sama seperti sebelumnya, tidak diubah) -->
     <style>
         /* ===== RESET & BASE ===== */
         * {
@@ -857,7 +858,7 @@
             <a href="about.html"><i class="fas fa-user"></i><span>About</span></a>
         </nav>
         <div style="padding:12px 18px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:#4a5268;text-align:center;">
-            v2.0.0
+            v3.0.0
         </div>
     </aside>
 
@@ -1032,7 +1033,7 @@
 
         <!-- ===== FOOTER ===== -->
         <div class="text-center text-xs text-gray-500 mt-8 border-t border-white/5 pt-4">
-            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v2.0.0
+            &copy; 2026 IoT Kandang Ulat Hongkong &bull; Built with ❤️ &bull; v3.0.0
         </div>
     </div>
 
@@ -1043,67 +1044,34 @@
     <!-- ===== JAVASCRIPT ===== -->
     <script>
         // =============================================================
-        // 1. CONFIGURATION
+        // 1. KONFIGURASI UNTUK CORE
         // =============================================================
-        var CONFIG = {
-            MQTT_BROKER: 'wss://broker.emqx.io:8084/mqtt',
-            MQTT_TOPICS: {
-                SENSOR_SHT31: 'sensor/sht31',
-                SENSOR_MQ135: 'sensor/mq135',
-                ACTUATOR_STATUS: 'actuator/status',
-                SYSTEM_STATE: 'system/state',
-                SYSTEM_CONTROL: 'system/control',
-                SENSOR_STATUS: 'sensor/status'
-            },
-            INTERVAL_SAMPLE: 2000
+        var APP_CONFIG = {
+            SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzomrIc68ISrGNVsOTgYI3nPy0kBgQm4WVUCYWfkB8lcwXgBJPbu2j3yxFhoz59VZk9Xw/exec',
+            TELEGRAM_BOT_TOKEN: 'YOUR_BOT_TOKEN',
+            TELEGRAM_CHAT_ID: 'YOUR_CHAT_ID',
         };
 
         // =============================================================
-        // 2. STATE
+        // 2. STATE REFERENCE (dari Core)
         // =============================================================
-        var state = {
-            temp: null,
-            hum: null,
-            nh3: null,
-            peltierPwm: 0,
-            fanPwm: 0,
-            coolFanPwm: 0,
-            peltierOn: false,
-            fanOn: false,
-            coolFanOn: false,
-            mode: 'AUTO',
-            mqttConnected: false,
-            wifiConnected: true,
-            sheetConnected: true,
-            tempMin: null,
-            tempMax: null,
-            tempSum: 0,
-            tempCount: 0,
-            humMin: null,
-            humMax: null,
-            humSum: 0,
-            humCount: 0,
-            nh3Min: null,
-            nh3Max: null,
-            nh3Sum: 0,
-            nh3Count: 0,
-            chartData: { labels: [], temp: [], hum: [], nh3: [], pwmPeltier: [], pwmFan: [], pwmCool: [] },
-            tableData: [],
-            dataReceived: false,
-            health: 100,
-            initialized: false
-        };
+        var stateManager = null;
+        var mqttManager = null;
+        var syncModule = null;
+        var chart = null;
+        var chartData = { labels: [], temp: [], hum: [], nh3: [], pwmPeltier: [], pwmFan: [], pwmCool: [] };
+        var tableData = [];
+        var initialized = false;
 
         // =============================================================
-        // 3. UTILITY
+        // 3. UTILITY FUNCTIONS
         // =============================================================
-        function formatTime(d) { d = d || new Date(); return d.toLocaleTimeString('id-ID', { hour12: false }); }
+        function formatTime(d) {
+            d = d || new Date();
+            return d.toLocaleTimeString('id-ID', { hour12: false });
+        }
 
         function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
-
-        function randomBetween(min, max) { return Math.random() * (max - min) + min; }
-
-        function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
         function safeNumber(value, fallback) {
             fallback = fallback || 0;
@@ -1113,12 +1081,14 @@
 
         function formatValue(value, digits) {
             digits = digits || 1;
-            var num = safeNumber(value, Number.NaN);
-            return Number.isNaN(num) ? '---' : num.toFixed(digits);
+            if (value === null || value === undefined || Number.isNaN(Number(value))) {
+                return '---';
+            }
+            return Number(value).toFixed(digits);
         }
 
         // =============================================================
-        // 4. TOAST
+        // 4. TOAST & UI HELPERS
         // =============================================================
         function showToast(message, type, duration) {
             type = type || 'info';
@@ -1143,282 +1113,133 @@
             }, duration);
         }
 
-        function addLog(message) { console.log(message); }
-
-        function addNotification(message, type) { showToast(message, type); }
-
-        // =============================================================
-        // 5. CLOCK & SIDEBAR TOGGLE
-        // =============================================================
-        function updateClock() {
-            document.getElementById('clock').textContent = formatTime();
-        }
-        setInterval(updateClock, 1000);
-        updateClock();
-
-        var menuToggle = document.getElementById('menuToggle');
-        var sidebar = document.getElementById('sidebar');
-
-        function setSidebarOpen(open) {
-            if (window.innerWidth <= 1024) {
-                sidebar.classList.toggle('open', open);
+        function addNotification(message, type) {
+            type = type || 'info';
+            if (stateManager && typeof stateManager.update === 'function') {
+                var notifs = stateManager.get('notifications') || [];
+                notifs.unshift({ message: message, type: type, time: formatTime() });
+                if (notifs.length > 50) notifs.pop();
+                stateManager.set('notifications', notifs, { publish: true, sync: true });
             } else {
-                sidebar.classList.remove('open');
-            }
-        }
-
-        menuToggle.addEventListener('click', function(e) {
-            e.stopPropagation();
-            setSidebarOpen(!sidebar.classList.contains('open'));
-        });
-        document.addEventListener('click', function(e) {
-            if (window.innerWidth <= 1024) {
-                if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
-                    setSidebarOpen(false);
-                }
-            }
-        });
-        window.addEventListener('resize', function() {
-            if (window.innerWidth > 1024) {
-                setSidebarOpen(false);
-            }
-        });
-
-        // =============================================================
-        // 6. MQTT
-        // =============================================================
-        var mqttClient = null;
-
-        function connectMQTT() {
-            try {
-                mqttClient = mqtt.connect(CONFIG.MQTT_BROKER, {
-                    clientId: 'monitor_' + uid(),
-                    clean: true,
-                    reconnectPeriod: 3000,
-                });
-                mqttClient.on('connect', function() {
-                    state.mqttConnected = true;
-                    updateStatusIndicators();
-                    showToast('MQTT Terhubung', 'success');
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
-                    mqttClient.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_STATE);
-                    // Subscribe ke sync state
-                    if (typeof SyncModule !== 'undefined') {
-                        SyncModule.subscribeState(mqttClient);
-                    }
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SYSTEM_CONTROL, JSON.stringify({
-                        command: 'dashboard_online',
-                        timestamp: new Date().toISOString()
-                    }));
-                });
-                mqttClient.on('message', function(topic, payload) {
-                    try {
-                        var data = JSON.parse(payload.toString());
-                        handleMqttMessage(topic, data);
-                    } catch (e) { /* ignore */ }
-                });
-                mqttClient.on('close', function() {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                });
-                mqttClient.on('error', function() {
-                    state.mqttConnected = false;
-                    updateStatusIndicators();
-                });
-            } catch (e) {
-                state.mqttConnected = false;
-                updateStatusIndicators();
-            }
-        }
-
-        function handleMqttMessage(topic, data) {
-            var needUpdate = false;
-
-            switch (topic) {
-                case CONFIG.MQTT_TOPICS.SENSOR_SHT31:
-                    if (data.temperature !== undefined) { state.temp = data.temperature;
-                        needUpdate = true; }
-                    if (data.humidity !== undefined) { state.hum = data.humidity;
-                        needUpdate = true; }
-                    break;
-                case CONFIG.MQTT_TOPICS.SENSOR_MQ135:
-                    if (data.nh3 !== undefined) { state.nh3 = data.nh3;
-                        needUpdate = true; }
-                    break;
-                case CONFIG.MQTT_TOPICS.ACTUATOR_STATUS:
-                    if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
-                    if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
-                    if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
-                    if (data.peltierOn !== undefined) state.peltierOn = data.peltierOn;
-                    if (data.fanOn !== undefined) state.fanOn = data.fanOn;
-                    if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
-                    if (data.mode !== undefined) state.mode = data.mode;
-                    needUpdate = true;
-                    break;
-                case CONFIG.MQTT_TOPICS.SYSTEM_STATE:
-                    if (typeof SyncModule !== 'undefined') {
-                        SyncModule.handleStateMessage(topic, JSON.stringify(data));
-                    }
-                    // Update local state from sync
-                    if (data.temp !== undefined) state.temp = data.temp;
-                    if (data.hum !== undefined) state.hum = data.hum;
-                    if (data.nh3 !== undefined) state.nh3 = data.nh3;
-                    if (data.peltierOn !== undefined) state.peltierOn = data.peltierOn;
-                    if (data.peltierPwm !== undefined) state.peltierPwm = data.peltierPwm;
-                    if (data.fanOn !== undefined) state.fanOn = data.fanOn;
-                    if (data.fanPwm !== undefined) state.fanPwm = data.fanPwm;
-                    if (data.coolFanOn !== undefined) state.coolFanOn = data.coolFanOn;
-                    if (data.coolFanPwm !== undefined) state.coolFanPwm = data.coolFanPwm;
-                    if (data.mode !== undefined) state.mode = data.mode;
-                    needUpdate = true;
-                    break;
-                default:
-                    break;
-            }
-
-            if (needUpdate) {
-                state.dataReceived = true;
-                // Update statistik
-                if (state.temp !== null) updateStats('temp', state.temp);
-                if (state.hum !== null) updateStats('hum', state.hum);
-                if (state.nh3 !== null) updateStats('nh3', state.nh3);
-                updateAllUI();
-                updateChartData();
-                updateTable();
-                // Sembunyikan loading
-                var ls = document.getElementById('loading-screen');
-                if (ls) ls.classList.add('hide');
+                showToast(message, type);
             }
         }
 
         // =============================================================
-        // 7. STATISTICS
+        // 5. UI UPDATE FUNCTIONS (dari state)
         // =============================================================
-        function updateStats(key, val) {
-            var numericValue = safeNumber(val, Number.NaN);
-            if (Number.isNaN(numericValue)) return;
-            if (key === 'temp') {
-                state.tempSum += numericValue;
-                state.tempCount++;
-                if (state.tempMin === null || numericValue < state.tempMin) state.tempMin = numericValue;
-                if (state.tempMax === null || numericValue > state.tempMax) state.tempMax = numericValue;
-                var elMin = document.getElementById('tempMin');
-                if (elMin) elMin.textContent = formatValue(state.tempMin, 1);
-                var elMax = document.getElementById('tempMax');
-                if (elMax) elMax.textContent = formatValue(state.tempMax, 1);
-                var elAvg = document.getElementById('tempAvg');
-                if (elAvg) elAvg.textContent = formatValue(state.tempSum / state.tempCount, 1);
-            } else if (key === 'hum') {
-                state.humSum += numericValue;
-                state.humCount++;
-                if (state.humMin === null || numericValue < state.humMin) state.humMin = numericValue;
-                if (state.humMax === null || numericValue > state.humMax) state.humMax = numericValue;
-                var elMinH = document.getElementById('humMin');
-                if (elMinH) elMinH.textContent = formatValue(state.humMin, 1);
-                var elMaxH = document.getElementById('humMax');
-                if (elMaxH) elMaxH.textContent = formatValue(state.humMax, 1);
-                var elAvgH = document.getElementById('humAvg');
-                if (elAvgH) elAvgH.textContent = formatValue(state.humSum / state.humCount, 1);
-            } else if (key === 'nh3') {
-                state.nh3Sum += numericValue;
-                state.nh3Count++;
-                if (state.nh3Min === null || numericValue < state.nh3Min) state.nh3Min = numericValue;
-                if (state.nh3Max === null || numericValue > state.nh3Max) state.nh3Max = numericValue;
-                var elMinN = document.getElementById('nh3Min');
-                if (elMinN) elMinN.textContent = formatValue(state.nh3Min, 1);
-                var elMaxN = document.getElementById('nh3Max');
-                if (elMaxN) elMaxN.textContent = formatValue(state.nh3Max, 1);
-                var elAvgN = document.getElementById('nh3Avg');
-                if (elAvgN) elAvgN.textContent = formatValue(state.nh3Sum / state.nh3Count, 1);
-            }
-        }
-
-        // =============================================================
-        // 8. UI UPDATE
-        // =============================================================
-        function updateStatusIndicators() {
-            var setDot = function(id, online) {
-                var el = document.getElementById(id);
-                if (el) el.className = 'dot ' + (online ? 'online' : 'offline');
-            };
-            setDot('wifiDot', state.wifiConnected);
-            setDot('mqttDot', state.mqttConnected);
-            setDot('sheetDot', state.sheetConnected);
-        }
-
         function updateSensorDisplay() {
-            var t = safeNumber(state.temp, Number.NaN);
-            var h = safeNumber(state.hum, Number.NaN);
-            var n = safeNumber(state.nh3, Number.NaN);
+            var temp = stateManager ? stateManager.get('temperature') : null;
+            var hum = stateManager ? stateManager.get('humidity') : null;
+            var nh3 = stateManager ? stateManager.get('nh3') : null;
+
+            var tempValue = safeNumber(temp, 0);
+            var humValue = safeNumber(hum, 0);
+            var nh3Value = safeNumber(nh3, 0);
 
             var tempVal = document.getElementById('gaugeTempVal');
-            if (tempVal) tempVal.textContent = Number.isNaN(t) ? '--' : t.toFixed(1);
+            if (tempVal) tempVal.textContent = formatValue(temp, 1);
             var humVal = document.getElementById('gaugeHumVal');
-            if (humVal) humVal.textContent = Number.isNaN(h) ? '--' : h.toFixed(1);
+            if (humVal) humVal.textContent = formatValue(hum, 1);
             var nh3Val = document.getElementById('gaugeNh3Val');
-            if (nh3Val) nh3Val.textContent = Number.isNaN(n) ? '--' : n.toFixed(1);
+            if (nh3Val) nh3Val.textContent = formatValue(nh3, 1);
+
+            // Min/Max/Avg belum dihitung dari Core, tapi kita bisa update nanti
+            // Untuk sementara, kita isi dengan nilai saat ini saja agar tidak kosong
+            var tempMin = document.getElementById('tempMin');
+            if (tempMin) tempMin.textContent = formatValue(temp, 1);
+            var tempMax = document.getElementById('tempMax');
+            if (tempMax) tempMax.textContent = formatValue(temp, 1);
+            var tempAvg = document.getElementById('tempAvg');
+            if (tempAvg) tempAvg.textContent = formatValue(temp, 1);
+
+            var humMin = document.getElementById('humMin');
+            if (humMin) humMin.textContent = formatValue(hum, 1);
+            var humMax = document.getElementById('humMax');
+            if (humMax) humMax.textContent = formatValue(hum, 1);
+            var humAvg = document.getElementById('humAvg');
+            if (humAvg) humAvg.textContent = formatValue(hum, 1);
+
+            var nh3Min = document.getElementById('nh3Min');
+            if (nh3Min) nh3Min.textContent = formatValue(nh3, 1);
+            var nh3Max = document.getElementById('nh3Max');
+            if (nh3Max) nh3Max.textContent = formatValue(nh3, 1);
+            var nh3Avg = document.getElementById('nh3Avg');
+            if (nh3Avg) nh3Avg.textContent = formatValue(nh3, 1);
 
             var tempProgress = document.getElementById('tempProgress');
             if (tempProgress) {
-                var tempPct = Number.isNaN(t) ? 0 : ((t - 24) / (29 - 24)) * 100;
+                var tempPct = ((tempValue - 24) / (29 - 24)) * 100;
                 tempProgress.style.width = clamp(tempPct, 0, 100) + '%';
-                tempProgress.style.background = Number.isNaN(t) ? '#2a9d8f' : t > 29 ? '#e74c3c' : t < 26 ? '#f1c40f' :
-                    '#2a9d8f';
+                tempProgress.style.background = tempValue > 29 ? '#e74c3c' : tempValue < 26 ? '#f1c40f' : '#2a9d8f';
             }
+
             var humProgress = document.getElementById('humProgress');
             if (humProgress) {
-                var humPct = Number.isNaN(h) ? 0 : ((h - 60) / (90 - 60)) * 100;
+                var humPct = ((humValue - 60) / (90 - 60)) * 100;
                 humProgress.style.width = clamp(humPct, 0, 100) + '%';
-                humProgress.style.background = Number.isNaN(h) ? '#3498db' : h > 90 ? '#e74c3c' : h < 60 ? '#f1c40f' :
-                    '#3498db';
+                humProgress.style.background = humValue > 90 ? '#e74c3c' : humValue < 60 ? '#f1c40f' : '#3498db';
             }
+
             var nh3Progress = document.getElementById('nh3Progress');
             if (nh3Progress) {
-                var nh3Pct = Number.isNaN(n) ? 0 : (n / 25) * 100;
+                var nh3Pct = (nh3Value / 25) * 100;
                 nh3Progress.style.width = clamp(nh3Pct, 0, 100) + '%';
-                nh3Progress.style.background = Number.isNaN(n) ? '#f1c40f' : n > 25 ? '#e74c3c' : n > 15 ? '#f1c40f' :
-                    '#2a9d8f';
+                nh3Progress.style.background = nh3Value > 25 ? '#e74c3c' : nh3Value > 15 ? '#f1c40f' : '#2a9d8f';
             }
 
+            var hasTemp = temp !== null && temp !== undefined && !Number.isNaN(Number(temp));
             var tempBadge = document.getElementById('tempBadge');
             if (tempBadge) {
-                tempBadge.textContent = Number.isNaN(t) ? 'Menunggu' : t > 29 ? 'Panas' : t < 26 ? 'Dingin' : 'Normal';
-                tempBadge.className = 'status-badge ' + (Number.isNaN(t) ? 'normal' : t > 29 ? 'danger' : t < 26 ?
+                tempBadge.textContent = !hasTemp ? 'Menunggu' : tempValue > 29 ? 'Panas' : tempValue < 26 ? 'Dingin' :
+                    'Normal';
+                tempBadge.className = 'status-badge ' + (!hasTemp ? 'normal' : tempValue > 29 ? 'danger' : tempValue < 26 ?
                     'warning' : 'normal');
             }
+
+            var hasHum = hum !== null && hum !== undefined && !Number.isNaN(Number(hum));
             var humBadge = document.getElementById('humBadge');
             if (humBadge) {
-                humBadge.textContent = Number.isNaN(h) ? 'Menunggu' : h > 90 ? 'Basah' : h < 60 ? 'Kering' : 'Normal';
-                humBadge.className = 'status-badge ' + (Number.isNaN(h) ? 'normal' : h > 90 ? 'danger' : h < 60 ?
+                humBadge.textContent = !hasHum ? 'Menunggu' : humValue > 90 ? 'Basah' : humValue < 60 ? 'Kering' :
+                'Normal';
+                humBadge.className = 'status-badge ' + (!hasHum ? 'normal' : humValue > 90 ? 'danger' : humValue < 60 ?
                     'warning' : 'normal');
             }
+
+            var hasNh3 = nh3 !== null && nh3 !== undefined && !Number.isNaN(Number(nh3));
             var nh3Badge = document.getElementById('nh3Badge');
             if (nh3Badge) {
-                nh3Badge.textContent = Number.isNaN(n) ? 'Menunggu' : n > 25 ? 'Berbahaya' : n > 15 ? 'Waspada' :
+                nh3Badge.textContent = !hasNh3 ? 'Menunggu' : nh3Value > 25 ? 'Berbahaya' : nh3Value > 15 ? 'Waspada' :
                     'Normal';
-                nh3Badge.className = 'status-badge ' + (Number.isNaN(n) ? 'normal' : n > 25 ? 'danger' : n > 15 ?
+                nh3Badge.className = 'status-badge ' + (!hasNh3 ? 'normal' : nh3Value > 25 ? 'danger' : nh3Value > 15 ?
                     'warning' : 'normal');
             }
         }
 
-        function updateActuatorDisplay() {
-            // Tidak ada elemen aktuator di monitoring, skip
-        }
+        function updateStatusIndicators() {
+            var mqttConnected = stateManager ? stateManager.get('isMqttConnected') || false : false;
+            var wifiConnected = stateManager ? stateManager.get('wifiStatus') === 'online' : true;
+            var sheetConnected = stateManager ? stateManager.get('isSpreadsheetConnected') || false : true;
 
-        function updateHealthDisplay() {
-            // Tidak ada health di monitoring, skip
+            var setDot = function(id, online) {
+                var el = document.getElementById(id);
+                if (el) { el.className = 'dot ' + (online ? 'online' : 'offline'); }
+            };
+            setDot('wifiDot', wifiConnected);
+            setDot('mqttDot', mqttConnected);
+            setDot('sheetDot', sheetConnected);
         }
 
         function updateAllUI() {
             updateSensorDisplay();
             updateStatusIndicators();
             updateGauges();
+            updateChartData();
+            updateTable();
         }
 
         // =============================================================
-        // 9. GAUGES
+        // 6. GAUGES
         // =============================================================
         function drawGauge(canvasId, value, min, max, color) {
             var canvas = document.getElementById(canvasId);
@@ -1464,25 +1285,26 @@
         }
 
         function updateGauges() {
-            drawGauge('gaugeTemp', state.temp, 20, 35, '#2a9d8f');
-            drawGauge('gaugeHum', state.hum, 40, 100, '#3498db');
-            drawGauge('gaugeNh3', state.nh3, 0, 40, '#f1c40f');
+            var temp = stateManager ? stateManager.get('temperature') : null;
+            var hum = stateManager ? stateManager.get('humidity') : null;
+            var nh3 = stateManager ? stateManager.get('nh3') : null;
+            drawGauge('gaugeTemp', temp, 20, 35, '#2a9d8f');
+            drawGauge('gaugeHum', hum, 40, 100, '#3498db');
+            drawGauge('gaugeNh3', nh3, 0, 40, '#f1c40f');
         }
 
         // =============================================================
-        // 10. CHART
+        // 7. CHART
         // =============================================================
-        var chart = null;
-
         function initChart() {
             var ctx = document.getElementById('monitoringChart').getContext('2d');
             chart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: state.chartData.labels,
+                    labels: chartData.labels,
                     datasets: [{
                         label: 'Suhu (°C)',
-                        data: state.chartData.temp,
+                        data: chartData.temp,
                         borderColor: '#2a9d8f',
                         backgroundColor: 'rgba(42,157,143,0.05)',
                         borderWidth: 2,
@@ -1491,7 +1313,7 @@
                         fill: true,
                     }, {
                         label: 'Kelembaban (%)',
-                        data: state.chartData.hum,
+                        data: chartData.hum,
                         borderColor: '#3498db',
                         backgroundColor: 'rgba(52,152,219,0.05)',
                         borderWidth: 2,
@@ -1500,7 +1322,7 @@
                         fill: true,
                     }, {
                         label: 'NH₃ (ppm)',
-                        data: state.chartData.nh3,
+                        data: chartData.nh3,
                         borderColor: '#f1c40f',
                         backgroundColor: 'rgba(241,196,15,0.05)',
                         borderWidth: 2,
@@ -1509,7 +1331,7 @@
                         fill: true,
                     }, {
                         label: 'PWM Peltier (%)',
-                        data: state.chartData.pwmPeltier,
+                        data: chartData.pwmPeltier,
                         borderColor: '#e74c3c',
                         borderWidth: 1.5,
                         pointRadius: 0,
@@ -1517,7 +1339,7 @@
                         borderDash: [4, 4],
                     }, {
                         label: 'PWM Fan (%)',
-                        data: state.chartData.pwmFan,
+                        data: chartData.pwmFan,
                         borderColor: '#e67e22',
                         borderWidth: 1.5,
                         pointRadius: 0,
@@ -1525,7 +1347,7 @@
                         borderDash: [4, 4],
                     }, {
                         label: 'PWM Cool Fan (%)',
-                        data: state.chartData.pwmCool,
+                        data: chartData.pwmCool,
                         borderColor: '#9b59b6',
                         borderWidth: 1.5,
                         pointRadius: 0,
@@ -1573,53 +1395,71 @@
             if (!chart) return;
             var now = formatTime();
             var maxPoints = 200;
-            state.chartData.labels.push(now);
-            state.chartData.temp.push(safeNumber(state.temp, 0));
-            state.chartData.hum.push(safeNumber(state.hum, 0));
-            state.chartData.nh3.push(safeNumber(state.nh3, 0));
-            state.chartData.pwmPeltier.push(state.peltierPwm);
-            state.chartData.pwmFan.push(state.fanPwm);
-            state.chartData.pwmCool.push(state.coolFanPwm);
 
-            if (state.chartData.labels.length > maxPoints) {
-                state.chartData.labels.shift();
-                state.chartData.temp.shift();
-                state.chartData.hum.shift();
-                state.chartData.nh3.shift();
-                state.chartData.pwmPeltier.shift();
-                state.chartData.pwmFan.shift();
-                state.chartData.pwmCool.shift();
+            var temp = stateManager ? stateManager.get('temperature') : null;
+            var hum = stateManager ? stateManager.get('humidity') : null;
+            var nh3 = stateManager ? stateManager.get('nh3') : null;
+            var peltierPwm = stateManager ? stateManager.get('peltierPwm') || 0 : 0;
+            var fanPwm = stateManager ? stateManager.get('fanPwm') || 0 : 0;
+            var coolFanPwm = stateManager ? stateManager.get('coolFanPwm') || 0 : 0;
+
+            chartData.labels.push(now);
+            chartData.temp.push(safeNumber(temp, 0));
+            chartData.hum.push(safeNumber(hum, 0));
+            chartData.nh3.push(safeNumber(nh3, 0));
+            chartData.pwmPeltier.push(peltierPwm);
+            chartData.pwmFan.push(fanPwm);
+            chartData.pwmCool.push(coolFanPwm);
+
+            if (chartData.labels.length > maxPoints) {
+                chartData.labels.shift();
+                chartData.temp.shift();
+                chartData.hum.shift();
+                chartData.nh3.shift();
+                chartData.pwmPeltier.shift();
+                chartData.pwmFan.shift();
+                chartData.pwmCool.shift();
             }
 
-            chart.data.labels = state.chartData.labels;
-            chart.data.datasets[0].data = state.chartData.temp;
-            chart.data.datasets[1].data = state.chartData.hum;
-            chart.data.datasets[2].data = state.chartData.nh3;
-            chart.data.datasets[3].data = state.chartData.pwmPeltier;
-            chart.data.datasets[4].data = state.chartData.pwmFan;
-            chart.data.datasets[5].data = state.chartData.pwmCool;
+            chart.data.labels = chartData.labels;
+            chart.data.datasets[0].data = chartData.temp;
+            chart.data.datasets[1].data = chartData.hum;
+            chart.data.datasets[2].data = chartData.nh3;
+            chart.data.datasets[3].data = chartData.pwmPeltier;
+            chart.data.datasets[4].data = chartData.pwmFan;
+            chart.data.datasets[5].data = chartData.pwmCool;
             chart.update('none');
         }
 
         // =============================================================
-        // 11. TABLE
+        // 8. TABLE
         // =============================================================
         function updateTable() {
             var tbody = document.getElementById('dataTableBody');
             if (!tbody) return;
+
+            var temp = stateManager ? stateManager.get('temperature') : null;
+            var hum = stateManager ? stateManager.get('humidity') : null;
+            var nh3 = stateManager ? stateManager.get('nh3') : null;
+            var peltierPwm = stateManager ? stateManager.get('peltierPwm') || 0 : 0;
+            var fanPwm = stateManager ? stateManager.get('fanPwm') || 0 : 0;
+            var coolFanPwm = stateManager ? stateManager.get('coolFanPwm') || 0 : 0;
+            var mode = stateManager ? stateManager.get('mode') || 'AUTO' : 'AUTO';
+
             var now = formatTime();
-            state.tableData.unshift({
+            tableData.unshift({
                 time: now,
-                temp: state.temp,
-                hum: state.hum,
-                nh3: state.nh3,
-                peltier: state.peltierPwm,
-                fan: state.fanPwm,
-                cool: state.coolFanPwm,
-                mode: state.mode
+                temp: temp,
+                hum: hum,
+                nh3: nh3,
+                peltier: peltierPwm,
+                fan: fanPwm,
+                cool: coolFanPwm,
+                mode: mode
             });
-            if (state.tableData.length > 20) state.tableData.pop();
-            tbody.innerHTML = state.tableData.map(function(d) {
+            if (tableData.length > 20) tableData.pop();
+
+            tbody.innerHTML = tableData.map(function(d) {
                 return '<tr>' +
                     '<td>' + d.time + '</td>' +
                     '<td>' + formatValue(d.temp, 1) + '</td>' +
@@ -1634,7 +1474,27 @@
         }
 
         // =============================================================
-        // 12. CHART RANGE BUTTONS
+        // 9. CLOCK & SIDEBAR
+        // =============================================================
+        function updateClock() {
+            document.getElementById('clock').textContent = formatTime();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        var menuToggle = document.getElementById('menuToggle');
+        var sidebar = document.getElementById('sidebar');
+        menuToggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+        });
+        document.addEventListener('click', function(e) {
+            if (window.innerWidth <= 1024 && !sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+                sidebar.classList.remove('open');
+            }
+        });
+
+        // =============================================================
+        // 10. CHART RANGE BUTTONS
         // =============================================================
         document.querySelectorAll('[data-range]').forEach(function(btn) {
             btn.addEventListener('click', function() {
@@ -1645,97 +1505,101 @@
         });
 
         // =============================================================
-        // 13. SINKRONISASI DARI SyncModule
-        // =============================================================
-        if (typeof SyncModule !== 'undefined') {
-            SyncModule.setOnStateChange(function(syncState) {
-                if (syncState.temp !== undefined) state.temp = syncState.temp;
-                if (syncState.hum !== undefined) state.hum = syncState.hum;
-                if (syncState.nh3 !== undefined) state.nh3 = syncState.nh3;
-                if (syncState.peltierOn !== undefined) state.peltierOn = syncState.peltierOn;
-                if (syncState.peltierPwm !== undefined) state.peltierPwm = syncState.peltierPwm;
-                if (syncState.fanOn !== undefined) state.fanOn = syncState.fanOn;
-                if (syncState.fanPwm !== undefined) state.fanPwm = syncState.fanPwm;
-                if (syncState.coolFanOn !== undefined) state.coolFanOn = syncState.coolFanOn;
-                if (syncState.coolFanPwm !== undefined) state.coolFanPwm = syncState.coolFanPwm;
-                if (syncState.mode !== undefined) state.mode = syncState.mode;
-                state.dataReceived = true;
-                updateAllUI();
-                updateChartData();
-                updateTable();
-                var ls = document.getElementById('loading-screen');
-                if (ls) ls.classList.add('hide');
-            });
-        }
-
-        // =============================================================
-        // 14. INIT
+        // 11. INITIALIZATION
         // =============================================================
         function init() {
-            if (state.initialized) return;
-            state.initialized = true;
+            if (initialized) return;
+            initialized = true;
 
-            state.temp = null;
-            state.hum = null;
-            state.nh3 = null;
-            state.tempMin = null;
-            state.tempMax = null;
-            state.humMin = null;
-            state.humMax = null;
-            state.nh3Min = null;
-            state.nh3Max = null;
+            // Tunggu Core siap
+            if (typeof Core === 'undefined' || !Core.initialized) {
+                setTimeout(init, 500);
+                return;
+            }
 
-            updateAllUI();
-            updateGauges(); 
+            stateManager = Core.getStateManager ? Core.getStateManager() : null;
+            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
+            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+
+            if (!stateManager) {
+                console.warn('StateManager tidak tersedia, gunakan fallback');
+                stateManager = {
+                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
+                    addListener: function() {}
+                };
+                window.__fallbackState = {};
+            }
+
+            // Inisialisasi Core jika belum
+            if (typeof Core.init === 'function' && !Core.initialized) {
+                Core.init({
+                    config: {
+                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
+                    },
+                    telegram: {
+                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
+                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
+                    }
+                });
+            }
+
+            // Subscribe ke perubahan state via StateManager
+            if (stateManager && typeof stateManager.addListener === 'function') {
+                stateManager.addListener('*', function(key, value, oldValue) {
+                    updateAllUI();
+                });
+            }
+
+            // Gunakan SyncModule untuk sinkronisasi antar user
+            if (syncModule && typeof syncModule.subscribeState === 'function') {
+                syncModule.subscribeState(mqttManager);
+                syncModule.setOnStateChange(function(state) {
+                    updateAllUI();
+                });
+            }
+
+            // Inisialisasi chart
             initChart();
-            connectMQTT();
 
-            // Set default display
-            document.getElementById('tempMin').textContent = '--';
-            document.getElementById('tempMax').textContent = '--';
-            document.getElementById('tempAvg').textContent = '--';
-            document.getElementById('humMin').textContent = '--';
-            document.getElementById('humMax').textContent = '--';
-            document.getElementById('humAvg').textContent = '--';
-            document.getElementById('nh3Min').textContent = '--';
-            document.getElementById('nh3Max').textContent = '--';
-            document.getElementById('nh3Avg').textContent = '--';
+            // Update UI pertama kali
+            updateAllUI();
+            setTimeout(updateGauges, 200);
 
-            addNotification('Menunggu data dari ESP32...', 'info');
+            // Sembunyikan loading
+            var loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                setTimeout(function() { loadingScreen.classList.add('hide'); }, 800);
+            }
 
-            setTimeout(function() {
-                var ls = document.getElementById('loading-screen');
-                if (ls) ls.classList.add('hide');
-            }, 1200);
-
+            // Update status periodik
             setInterval(function() {
-                if (!state.mqttConnected && mqttClient) {
-                    try { mqttClient.reconnect(); } catch (e) {}
-                }
                 updateStatusIndicators();
             }, 10000);
 
+            // Periodik update chart & table
             setInterval(function() {
-                if (state.mqttConnected && mqttClient) {
-                    mqttClient.publish(CONFIG.MQTT_TOPICS.SENSOR_STATUS, JSON.stringify({
-                        dashboard: 'online',
-                        timestamp: new Date().toISOString(),
-                        health: state.health,
-                    }));
-                }
-            }, 15000);
+                updateChartData();
+                updateTable();
+            }, 2000);
+
+            addNotification('Monitoring siap dengan Core System', 'success');
+            console.log('📊 Monitoring menggunakan Core System v3.0');
         }
 
+        // =============================================================
+        // 12. START
+        // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            init();
+            setTimeout(init, 300);
         }
 
-        // Ekspos untuk debug
-        window.__state = state;
-        window.__config = CONFIG;
-        console.log('📊 Monitoring Page Loaded');
+        // Ekspos untuk debugging
+        window.__stateManager = stateManager;
+        window.__mqttManager = mqttManager;
+        window.__syncModule = syncModule;
+        console.log('📊 Monitoring siap, menunggu Core System...');
     </script>
 
 </body>

@@ -3,7 +3,7 @@
  * Terintegrasi dengan Core System (StateManager, MqttManager)
  * 
  * @author Muhammad Gatan Rifani
- * @version 3.0.0
+ * @version 3.0.1
  */
 
 (function(global) {
@@ -25,18 +25,22 @@
     var _isInitialized = false;
 
     // ============================================================
-    // 3. INISIALISASI
+    // 3. INISIALISASI (dengan pengecekan Core siap)
     // ============================================================
     function init() {
         if (_isInitialized) return;
 
-        // Ambil referensi dari global Core
-        if (typeof global.Core !== 'undefined' && global.Core) {
-            _stateManager = global.Core.getStateManager ? global.Core.getStateManager() : null;
-            _mqttManager = global.Core.getMqttManager ? global.Core.getMqttManager() : null;
+        // Tunggu Core System benar-benar siap
+        if (typeof global.Core === 'undefined' || !global.Core.initialized) {
+            setTimeout(init, 300);
+            return;
         }
 
-        // Fallback: cari global StateManager/MqttManager
+        // Ambil referensi dari global Core
+        _stateManager = global.Core.getStateManager ? global.Core.getStateManager() : null;
+        _mqttManager = global.Core.getMqttManager ? global.Core.getMqttManager() : null;
+
+        // Fallback: cari global StateManager/MqttManager (jika core tidak ditemukan)
         if (!_stateManager && typeof global.StateManager !== 'undefined') {
             _stateManager = global.StateManager;
         }
@@ -52,26 +56,30 @@
             _mqttManager = global.window.MqttManager;
         }
 
-        // Jika masih tidak ada, gunakan mqttManager dari mqtt-config.js (fallback)
+        // Fallback terakhir: gunakan mqttManager yang diekspos core.js ke window
         if (!_mqttManager && global.window && global.window.mqttManager) {
             _mqttManager = global.window.mqttManager;
         }
 
         if (_stateManager) {
             // Daftarkan listener ke StateManager
-            _stateManager.addListener('*', function(key, value, oldValue) {
-                if (_onStateChange) {
-                    var state = _stateManager.getState ? _stateManager.getState() : _stateManager.state;
-                    _onStateChange(state, key, value, oldValue);
-                }
-            });
-            console.log('[Sync] Terintegrasi dengan StateManager');
+            if (typeof _stateManager.addListener === 'function') {
+                _stateManager.addListener('*', function(key, value, oldValue) {
+                    if (_onStateChange) {
+                        var state = _stateManager.getState ? _stateManager.getState() : _stateManager.state;
+                        _onStateChange(state, key, value, oldValue);
+                    }
+                });
+                console.log('[Sync] Terintegrasi dengan StateManager');
+            } else {
+                console.warn('[Sync] StateManager tidak memiliki addListener');
+            }
         } else {
             console.warn('[Sync] StateManager tidak ditemukan, menggunakan localState fallback');
         }
 
         if (_mqttManager) {
-            // Subscribe ke topik state (core.js sudah melakukannya, tapi kita pastikan)
+            // Subscribe ke topik state (core.js sebenarnya sudah melakukannya, tapi kita pastikan)
             if (typeof _mqttManager.subscribe === 'function') {
                 _mqttManager.subscribe(TOPIC_STATE);
             } else if (_mqttManager.client && typeof _mqttManager.client.subscribe === 'function') {
@@ -139,7 +147,7 @@
     }
 
     // ============================================================
-    // 6. PUBLISH STATE VIA MQTT
+    // 6. PUBLISH STATE VIA MQTT (DIPERBAIKI: stringify object)
     // ============================================================
     function publishState() {
         var state = getState();
@@ -150,13 +158,17 @@
             return;
         }
 
+        // Pastikan payload berupa string JSON (MQTT hanya menerima string/buffer)
+        var payload = typeof state === 'string' ? state : JSON.stringify(state);
+
         // Pilih metode publish yang tersedia
         if (typeof target.publish === 'function') {
-            target.publish(TOPIC_STATE, state);
+            target.publish(TOPIC_STATE, payload);
         } else if (target.client && typeof target.client.publish === 'function') {
-            target.client.publish(TOPIC_STATE, JSON.stringify(state));
+            target.client.publish(TOPIC_STATE, payload);
         } else {
             console.warn('[Sync] Tidak ada metode publish yang tersedia');
+            return;
         }
 
         console.log('📤 Sync: State published');
@@ -225,7 +237,7 @@
     }
 
     // ============================================================
-    // 9. UPDATE LOCAL STATE (dipanggil dari UI)
+    // 9. UPDATE LOCAL STATE (dipanggil dari UI) - DIPERBAIKI: stringify
     // ============================================================
     function updateLocalState(newState, transport) {
         if (!newState || typeof newState !== 'object') return;
@@ -249,10 +261,11 @@
 
         // Kirim ke transport jika diberikan dan berbeda
         if (transport && transport !== _mqttManager) {
+            var payload = typeof updates === 'string' ? updates : JSON.stringify(updates);
             if (typeof transport.publish === 'function') {
-                transport.publish(TOPIC_STATE, updates);
+                transport.publish(TOPIC_STATE, payload);
             } else if (transport.client && typeof transport.client.publish === 'function') {
-                transport.client.publish(TOPIC_STATE, JSON.stringify(updates));
+                transport.client.publish(TOPIC_STATE, payload);
             }
         }
     }
@@ -334,9 +347,9 @@
     }
 
     // ============================================================
-    // 14. AUTO-INIT
+    // 14. AUTO-INIT (dengan pengecekan document ready)
     // ============================================================
-    // Tunggu Core siap
+    // Tunggu Core siap (core.js akan memuat dan menjalankan auto-init juga)
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         setTimeout(function() {
             SyncModule.init();

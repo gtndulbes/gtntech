@@ -1549,6 +1549,7 @@
 
     global.Core = Core;
     global.MqttManager = MqttManager;
+    global.mqttManager = MqttManager;
     global.StateManager = StateManager;
     global.SpreadsheetManager = SpreadsheetManager;
     global.TelegramManager = TelegramManager;

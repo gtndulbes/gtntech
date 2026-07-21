@@ -20,9 +20,8 @@
     <script src="assets/js/sync.js">
     </script>
 
+    <!-- STYLE (sama seperti sebelumnya, tidak diubah) -->
     <style>
-        /* ===== CSS SAMA SEPERTI SEBELUMNYA ===== */
-        /* (tidak diubah, tetap sama) */
         * {
             margin: 0;
             padding: 0;
@@ -1434,7 +1433,6 @@
         // =============================================================
         // 2. STATE REFERENCE (dari Core)
         // =============================================================
-        var state = null;
         var stateManager = null;
         var mqttManager = null;
         var syncModule = null;
@@ -1680,6 +1678,9 @@
             if (gaugeHumVal) gaugeHumVal.textContent = formatValue(hum, 1);
             var gaugeNh3Val = document.getElementById('gaugeNh3Val');
             if (gaugeNh3Val) gaugeNh3Val.textContent = formatValue(nh3, 1);
+
+            console.log('[UI] Sensor updated: temp=' + formatValue(temp) + ', hum=' + formatValue(hum) + ', nh3=' + formatValue(
+                nh3));
         }
 
         function updateActuatorDisplay() {
@@ -1777,7 +1778,11 @@
             if (statusSelf) statusSelf.className = 'dot ' + (health > 60 ? 'green' : 'yellow');
         }
 
+        // =============================================================
+        // 7. MAIN UPDATE
+        // =============================================================
         function updateAllUI() {
+            console.log('[UI] Update all UI triggered');
             updateSensorDisplay();
             updateActuatorDisplay();
             updateHealthDisplay();
@@ -1790,7 +1795,7 @@
         }
 
         // =============================================================
-        // 7. GAUGES (Canvas)
+        // 8. GAUGES (Canvas)
         // =============================================================
         function drawGauge(canvasId, value, min, max, unit, color) {
             var canvas = document.getElementById(canvasId);
@@ -1848,7 +1853,7 @@
         }
 
         // =============================================================
-        // 8. CHART (Chart.js)
+        // 9. CHART (Chart.js)
         // =============================================================
         function initChart() {
             var ctx = document.getElementById('realtimeChart').getContext('2d');
@@ -1986,7 +1991,7 @@
         }
 
         // =============================================================
-        // 9. CLOCK & SIDEBAR
+        // 10. CLOCK & SIDEBAR
         // =============================================================
         function updateClock() {
             document.getElementById('clock').textContent = formatTime();
@@ -2006,7 +2011,7 @@
         });
 
         // =============================================================
-        // 10. CHART RANGE BUTTONS
+        // 11. CHART RANGE BUTTONS
         // =============================================================
         document.querySelectorAll('[data-range]').forEach(function(btn) {
             btn.addEventListener('click', function() {
@@ -2017,7 +2022,7 @@
         });
 
         // =============================================================
-        // 11. MODAL
+        // 12. MODAL
         // =============================================================
         var modalCallback = null;
 
@@ -2048,7 +2053,7 @@
         });
 
         // =============================================================
-        // 12. INITIALIZATION
+        // 13. INITIALIZATION
         // =============================================================
         function init() {
             if (initialized) return;
@@ -2095,35 +2100,23 @@
                         chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
                     }
                 });
+                // Ambil ulang referensi setelah Core init
                 stateManager = Core.getStateManager ? Core.getStateManager() : stateManager;
                 mqttManager = Core.getMqttManager ? Core.getMqttManager() : mqttManager;
             }
 
-            // Tambahkan listener untuk debug MQTT
-            if (mqttManager) {
-                // Tampilkan semua pesan MQTT yang masuk (debug)
-                if (typeof mqttManager.on === 'function') {
-                    mqttManager.on('*', function(data, topic) {
-                        console.log('📥 MQTT message received:', topic, data);
-                        // Jika data sensor masuk, stateManager akan otomatis update
-                    });
-                }
-                // Log status koneksi
-                if (typeof mqttManager.onStatusChange === 'function') {
-                    mqttManager.onStatusChange(function(connected) {
-                        console.log('📡 MQTT status:', connected ? 'ONLINE' : 'OFFLINE');
-                    });
-                }
-            } else {
-                console.warn('mqttManager masih null, data sensor tidak akan masuk');
-            }
-
-            // Subscribe ke perubahan state via StateManager
+            // Tambahkan listener untuk state change
             if (stateManager && typeof stateManager.addListener === 'function') {
                 stateManager.addListener('*', function(key, value, oldValue) {
-                    console.log('🔄 State changed:', key, value);
+                    console.log('[UI] State changed:', key, value);
                     updateAllUI();
                 });
+            } else {
+                console.warn('StateManager tidak punya addListener, UI tidak akan update otomatis');
+                // Fallback: polling setiap 2 detik
+                setInterval(function() {
+                    updateAllUI();
+                }, 2000);
             }
 
             // Gunakan SyncModule jika tersedia
@@ -2161,6 +2154,11 @@
                 updateChartData();
             }, 2000);
 
+            // Polling fallback untuk update UI (jika listener tidak jalan)
+            setInterval(function() {
+                updateAllUI();
+            }, 3000);
+
             addNotification('Dashboard siap dengan Core System', 'success');
             addLog('Sistem dimulai (Core v3.0)');
 
@@ -2170,7 +2168,7 @@
         }
 
         // =============================================================
-        // 13. START
+        // 14. START
         // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
@@ -2178,24 +2176,20 @@
             setTimeout(init, 300);
         }
 
+        // Fallback: hilangkan loading screen setelah 3 detik
+        setTimeout(function() {
+            var ls = document.getElementById('loading-screen');
+            if (ls) ls.classList.add('hide');
+        }, 3000);
+
         // Ekspos untuk debugging
         window.__stateManager = stateManager;
         window.__mqttManager = mqttManager;
         window.__syncModule = syncModule;
         window.__showToast = showToast;
-        window.__addNotification = addNotification;
-        window.__addLog = addLog;
-        window.__addAlarm = addAlarm;
+        window.__updateAllUI = updateAllUI;
 
         console.log('🐛 Dashboard siap, menunggu Core System...');
-    </script>
-
-    <!-- ===== FALLBACK: hilangkan loading setelah 3 detik ===== -->
-    <script>
-        setTimeout(function() {
-            var ls = document.getElementById('loading-screen');
-            if (ls) ls.classList.add('hide');
-        }, 3000);
     </script>
 
 </body>

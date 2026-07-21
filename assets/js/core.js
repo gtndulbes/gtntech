@@ -1004,33 +1004,52 @@
     // --- Log Data to Spreadsheet ---
     logData: function(data) {
         if (!this.isConfigured) {
-        console.warn('[Spreadsheet] Not configured, data not logged');
-        return;
+            console.warn('[Spreadsheet] Not configured, data not logged');
+            return;
         }
         var apiUrl = CONFIG.SPREADSHEET_API;
         var payload = {
-        timestamp: new Date().toISOString(),
-        temperature: data.temperature || State.temperature || 0,
-        humidity: data.humidity || State.humidity || 0,
-        nh3: data.nh3 || State.nh3 || 0,
-        peltierPwm: data.peltierPwm || State.peltierPwm || 0,
-        fanPwm: data.fanPwm || State.fanPwm || 0,
-        coolFanPwm: data.coolFanPwm || State.coolFanPwm || 0,
-        kp: data.kp || State.kp || 0,
-        ki: data.ki || State.ki || 0,
-        kd: data.kd || State.kd || 0,
-        mode: data.mode || State.mode || 'AUTO',
-        alarm: State.alarms.filter(function(a) { return a.active; }).map(function(a) { return a.message; }).join(','),
-        status: State.health > 80 ? 'Normal' : State.health > 60 ? 'Warning' : 'Danger',
+            timestamp: new Date().toISOString(),
+            temperature: data.temperature || State.temperature || 0,
+            humidity: data.humidity || State.humidity || 0,
+            nh3: data.nh3 || State.nh3 || 0,
+            peltierPwm: data.peltierPwm || State.peltierPwm || 0,
+            fanPwm: data.fanPwm || State.fanPwm || 0,
+            coolFanPwm: data.coolFanPwm || State.coolFanPwm || 0,
+            kp: data.kp || State.kp || 0,
+            ki: data.ki || State.ki || 0,
+            kd: data.kd || State.kd || 0,
+            mode: data.mode || State.mode || 'AUTO',
+            alarm: State.alarms.filter(function(a) { return a.active; }).map(function(a) { return a.message; }).join(','),
+            status: State.health > 80 ? 'Normal' : State.health > 60 ? 'Warning' : 'Danger',
         };
+        console.log('[Spreadsheet] Logging data:', payload);
+        
+        // Coba pakai mode: 'cors' untuk bisa lihat response, fallback ke no-cors
         fetch(apiUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+            method: 'POST',
+            mode: 'cors', // ganti sementara untuk debugging
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        })
+        .then(function(response) {
+            if (!response.ok) {
+                console.warn('[Spreadsheet] Log response not OK:', response.status);
+            }
+            return response.text();
+        })
+        .then(function(text) {
+            console.log('[Spreadsheet] Log response:', text);
         })
         .catch(function(error) {
-        console.warn('[Spreadsheet] Log error:', error);
+            console.warn('[Spreadsheet] Log error:', error);
+            // Fallback ke no-cors jika cors gagal
+            fetch(apiUrl, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
         });
     },
 

@@ -467,6 +467,16 @@
                 }.bind(this));
             }
 
+            // ===== TAMBAHKAN INI =====
+            // Subscribe ke topik sensor yang dikirim ESP32
+            this.client.subscribe(CONFIG.MQTT_TOPICS.SENSOR_SHT31);
+            this.client.subscribe(CONFIG.MQTT_TOPICS.SENSOR_MQ135);
+            this.client.subscribe(CONFIG.MQTT_TOPICS.ACTUATOR_STATUS);
+            this.client.subscribe(CONFIG.MQTT_TOPICS.FUZZY_STATUS);
+            this.client.subscribe(CONFIG.MQTT_TOPICS.SYSTEM_ALARM);
+            this.client.subscribe(CONFIG.MQTT_TOPICS.SELF_MONITOR);
+            // ===== SAMPAI SINI =====
+
             this.processQueue();
 
             this.publish(CONFIG.MQTT_TOPICS.SYSTEM_STATUS, JSON.stringify({

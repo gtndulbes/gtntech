@@ -48,7 +48,7 @@
             SELF_MONITOR: 'system/selfmonitor',
             TELEGRAM_LOG: 'telegram/log'
         },
-        SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbxKOjtJQ4kF4biMhOo9kjWTwtlW82d48nsvFi1qzS9qz2GEsuZhudHSDgdyxQPlaemXXw/exec',
+        SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA/exec',
         PUBLISH_INTERVAL: 2000,
         HEARTBEAT_INTERVAL: 10000,
         SPREADSHEET_HEALTH_INTERVAL: 30000,

@@ -13,12 +13,15 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
     </script>
-    <script src="assets/js/sync.js">
-    </script>
-    <script src="assets/js/mqtt-config.js">
-    </script>
-    <script src="assets/js/core.js">
-    </script>
+
+    <!-- ============================================================ -->
+    <!--  CORE SYSTEM – WAJIB dimuat sebelum sync.js dan modul lain   -->
+    <!--  core.js menyediakan StateManager, MqttManager, CONFIG, dll  -->
+    <!-- ============================================================ -->
+    <script src="assets/js/core.js"></script>
+    <script src="assets/js/sync.js"></script>
+    <!-- mqtt-config.js TIDAK diperlukan karena core.js sudah mengekspos semua -->
+
     <style>
         /* ===== RESET & BASE ===== */
         * {

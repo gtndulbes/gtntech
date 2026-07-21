@@ -2130,6 +2130,7 @@
 
             // Tunggu Core siap
             if (typeof Core === 'undefined' || !Core.initialized) {
+                console.log('[Dashboard] Menunggu Core siap...');
                 setTimeout(init, 500);
                 return;
             }
@@ -2138,6 +2139,17 @@
             stateManager = Core.getStateManager ? Core.getStateManager() : null;
             mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
             syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+
+            // Jika stateManager masih null, coba dari global
+            if (!stateManager && window.StateManager) {
+                stateManager = window.StateManager;
+            }
+            if (!mqttManager && window.mqttManager) {
+                mqttManager = window.mqttManager;
+            }
+            if (!mqttManager && window.MqttManager) {
+                mqttManager = window.MqttManager;
+            }
 
             if (!stateManager) {
                 console.warn('StateManager tidak tersedia, gunakan fallback');
@@ -2153,7 +2165,7 @@
                 window.__fallbackState = {};
             }
 
-            // Inisialisasi Core dengan konfigurasi
+            // Inisialisasi Core dengan konfigurasi (jika belum)
             if (typeof Core.init === 'function' && !Core.initialized) {
                 Core.init({
                     config: {
@@ -2164,6 +2176,9 @@
                         chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
                     }
                 });
+                // Ambil ulang referensi setelah Core init
+                stateManager = Core.getStateManager ? Core.getStateManager() : stateManager;
+                mqttManager = Core.getMqttManager ? Core.getMqttManager() : mqttManager;
             }
 
             // Subscribe ke perubahan state via StateManager
@@ -2175,10 +2190,14 @@
 
             // Gunakan SyncModule untuk sinkronisasi antar user
             if (syncModule && typeof syncModule.subscribeState === 'function') {
-                syncModule.subscribeState(mqttManager);
-                syncModule.setOnStateChange(function(state) {
-                    updateAllUI();
-                });
+                if (mqttManager) {
+                    syncModule.subscribeState(mqttManager);
+                    syncModule.setOnStateChange(function(state) {
+                        updateAllUI();
+                    });
+                } else {
+                    console.warn('[Dashboard] mqttManager null, sync module tidak bisa subscribe');
+                }
             }
 
             // Inisialisasi chart

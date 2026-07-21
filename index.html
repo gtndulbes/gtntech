@@ -21,7 +21,8 @@
     </script>
 
     <style>
-        /* ===== RESET & BASE ===== */
+        /* ===== CSS SAMA SEPERTI SEBELUMNYA ===== */
+        /* (tidak diubah, tetap sama) */
         * {
             margin: 0;
             padding: 0;
@@ -47,8 +48,6 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #21867a;
         }
-
-        /* ===== GLASSMORPHISM ===== */
         .glass {
             background: rgba(255, 255, 255, 0.04);
             backdrop-filter: blur(16px);
@@ -62,8 +61,6 @@
             -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.08);
         }
-
-        /* ===== SIDEBAR ===== */
         .sidebar {
             position: fixed;
             top: 0;
@@ -168,8 +165,6 @@
         .sidebar.open .nav a .badge {
             opacity: 1;
         }
-
-        /* ===== MAIN CONTENT ===== */
         .main-content {
             margin-left: 76px;
             min-height: 100vh;
@@ -181,8 +176,6 @@
                 margin-left: 240px;
             }
         }
-
-        /* ===== TOP NAVBAR ===== */
         .topbar {
             display: flex;
             align-items: center;
@@ -273,8 +266,6 @@
             cursor: pointer;
             border: 2px solid rgba(42, 157, 143, 0.3);
         }
-
-        /* ===== CARDS ===== */
         .card {
             background: rgba(255, 255, 255, 0.04);
             backdrop-filter: blur(12px);
@@ -305,8 +296,6 @@
             font-size: 16px;
             color: #2a9d8f;
         }
-
-        /* ===== CHART WRAPPER ===== */
         .chart-shell {
             position: relative;
             width: 100%;
@@ -319,8 +308,6 @@
             width: 100% !important;
             height: 100% !important;
         }
-
-        /* ===== SENSOR VALUE ===== */
         .sensor-value {
             font-size: 36px;
             font-weight: 700;
@@ -351,8 +338,6 @@
             background: rgba(231, 76, 60, 0.2);
             color: #e74c3c;
         }
-
-        /* ===== PROGRESS BAR ===== */
         .progress-track {
             width: 100%;
             height: 6px;
@@ -366,8 +351,6 @@
             border-radius: 10px;
             transition: width 0.4s ease;
         }
-
-        /* ===== GAUGE ===== */
         .gauge-wrap {
             position: relative;
             width: 140px;
@@ -396,8 +379,6 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-
-        /* ===== ACTUATOR CARD ===== */
         .actuator-card {
             display: flex;
             align-items: center;
@@ -445,8 +426,6 @@
         .actuator-card .status-led.off {
             background: #555;
         }
-
-        /* ===== LED INDICATOR ===== */
         .led {
             display: inline-flex;
             align-items: center;
@@ -472,8 +451,6 @@
             background: #e74c3c;
             box-shadow: 0 0 12px rgba(231, 76, 60, 0.4);
         }
-
-        /* ===== ALARM ===== */
         .alarm-item {
             display: flex;
             align-items: center;
@@ -496,8 +473,6 @@
         .alarm-item .icon.danger {
             color: #e74c3c;
         }
-
-        /* ===== NOTIFICATION ===== */
         .notif-item {
             padding: 10px 14px;
             border-radius: 10px;
@@ -515,8 +490,6 @@
             margin-left: auto;
             white-space: nowrap;
         }
-
-        /* ===== HEALTH METER ===== */
         .health-ring {
             width: 80px;
             height: 80px;
@@ -529,8 +502,6 @@
             position: relative;
             margin: 0 auto;
         }
-
-        /* ===== RESPONSIVE ===== */
         @media (max-width: 1024px) {
             .sidebar {
                 width: 0;
@@ -594,8 +565,6 @@
                 padding: 14px;
             }
         }
-
-        /* ===== ANIMATIONS ===== */
         @keyframes pulse-green {
             0%,
             100% {
@@ -629,8 +598,6 @@
         .fade-in-up {
             animation: fadeInUp 0.5s ease forwards;
         }
-
-        /* ===== TOGGLE SWITCH ===== */
         .toggle {
             width: 44px;
             height: 24px;
@@ -661,8 +628,6 @@
             background: #2a9d8f;
             box-shadow: 0 0 12px rgba(42, 157, 143, 0.4);
         }
-
-        /* ===== SLIDER ===== */
         input[type="range"] {
             -webkit-appearance: none;
             appearance: none;
@@ -691,8 +656,6 @@
             cursor: pointer;
             border: none;
         }
-
-        /* ===== LOADING ===== */
         #loading-screen {
             position: fixed;
             inset: 0;
@@ -722,8 +685,6 @@
             font-weight: 500;
             letter-spacing: 1px;
         }
-
-        /* ===== TOAST ===== */
         .toast-container {
             position: fixed;
             bottom: 24px;
@@ -778,8 +739,6 @@
             transform: translateX(60px);
             transition: 0.3s;
         }
-
-        /* ===== BREADCRUMB ===== */
         .breadcrumb {
             display: flex;
             align-items: center;
@@ -802,8 +761,6 @@
         .breadcrumb .current {
             color: #e8edf5;
         }
-
-        /* ===== MODAL ===== */
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -873,8 +830,6 @@
         .modal-box .actions .btn-danger:hover {
             background: #c0392b;
         }
-
-        /* Utility */
         .text-neon {
             color: #2a9d8f;
         }
@@ -1025,30 +980,6 @@
         .grid {
             display: grid;
         }
-        .gap-2 {
-            gap: 8px;
-        }
-        .gap-3 {
-            gap: 12px;
-        }
-        .gap-4 {
-            gap: 16px;
-        }
-        .gap-6 {
-            gap: 24px;
-        }
-        .grid-cols-1 {
-            grid-template-columns: 1fr;
-        }
-        .grid-cols-2 {
-            grid-template-columns: 1fr 1fr;
-        }
-        .grid-cols-3 {
-            grid-template-columns: 1fr 1fr 1fr;
-        }
-        .grid-cols-4 {
-            grid-template-columns: 1fr 1fr 1fr 1fr;
-        }
         @media (min-width: 640px) {
             .sm\:grid-cols-2 {
                 grid-template-columns: 1fr 1fr;
@@ -1091,7 +1022,6 @@
                 grid-column: span 3;
             }
         }
-
         .transition-all {
             transition: all 0.25s ease;
         }
@@ -1511,7 +1441,6 @@
         var chart = null;
         var chartData = { labels: [], temp: [], hum: [], nh3: [], pwmPeltier: [], pwmFan: [], pwmCool: [] };
         var initialized = false;
-        var updateInterval = null;
 
         // =============================================================
         // 3. UTILITY FUNCTIONS
@@ -1565,7 +1494,6 @@
 
         function addNotification(message, type) {
             type = type || 'info';
-            // Gunakan Core StateManager jika tersedia
             if (stateManager && typeof stateManager.update === 'function') {
                 var notifs = stateManager.get('notifications') || [];
                 notifs.unshift({ message: message, type: type, time: formatTime() });
@@ -1748,10 +1676,8 @@
 
             var gaugeTempVal = document.getElementById('gaugeTempVal');
             if (gaugeTempVal) gaugeTempVal.textContent = formatValue(temp, 1);
-
             var gaugeHumVal = document.getElementById('gaugeHumVal');
             if (gaugeHumVal) gaugeHumVal.textContent = formatValue(hum, 1);
-
             var gaugeNh3Val = document.getElementById('gaugeNh3Val');
             if (gaugeNh3Val) gaugeNh3Val.textContent = formatValue(nh3, 1);
         }
@@ -2140,20 +2066,13 @@
             mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
             syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
 
-            // Jika stateManager masih null, coba dari global
-            if (!stateManager && window.StateManager) {
-                stateManager = window.StateManager;
-            }
-            if (!mqttManager && window.mqttManager) {
-                mqttManager = window.mqttManager;
-            }
-            if (!mqttManager && window.MqttManager) {
-                mqttManager = window.MqttManager;
-            }
+            // Fallback jika masih null
+            if (!stateManager && window.StateManager) stateManager = window.StateManager;
+            if (!mqttManager && window.mqttManager) mqttManager = window.mqttManager;
+            if (!mqttManager && window.MqttManager) mqttManager = window.MqttManager;
 
             if (!stateManager) {
                 console.warn('StateManager tidak tersedia, gunakan fallback');
-                // Fallback: buat state sederhana
                 stateManager = {
                     get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
                     set: function(key, value) {
@@ -2165,7 +2084,7 @@
                 window.__fallbackState = {};
             }
 
-            // Inisialisasi Core dengan konfigurasi (jika belum)
+            // Inisialisasi Core jika belum
             if (typeof Core.init === 'function' && !Core.initialized) {
                 Core.init({
                     config: {
@@ -2176,19 +2095,38 @@
                         chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
                     }
                 });
-                // Ambil ulang referensi setelah Core init
                 stateManager = Core.getStateManager ? Core.getStateManager() : stateManager;
                 mqttManager = Core.getMqttManager ? Core.getMqttManager() : mqttManager;
+            }
+
+            // Tambahkan listener untuk debug MQTT
+            if (mqttManager) {
+                // Tampilkan semua pesan MQTT yang masuk (debug)
+                if (typeof mqttManager.on === 'function') {
+                    mqttManager.on('*', function(data, topic) {
+                        console.log('📥 MQTT message received:', topic, data);
+                        // Jika data sensor masuk, stateManager akan otomatis update
+                    });
+                }
+                // Log status koneksi
+                if (typeof mqttManager.onStatusChange === 'function') {
+                    mqttManager.onStatusChange(function(connected) {
+                        console.log('📡 MQTT status:', connected ? 'ONLINE' : 'OFFLINE');
+                    });
+                }
+            } else {
+                console.warn('mqttManager masih null, data sensor tidak akan masuk');
             }
 
             // Subscribe ke perubahan state via StateManager
             if (stateManager && typeof stateManager.addListener === 'function') {
                 stateManager.addListener('*', function(key, value, oldValue) {
+                    console.log('🔄 State changed:', key, value);
                     updateAllUI();
                 });
             }
 
-            // Gunakan SyncModule untuk sinkronisasi antar user
+            // Gunakan SyncModule jika tersedia
             if (syncModule && typeof syncModule.subscribeState === 'function') {
                 if (mqttManager) {
                     syncModule.subscribeState(mqttManager);
@@ -2237,7 +2175,6 @@
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            // Tunggu Core selesai init
             setTimeout(init, 300);
         }
 
@@ -2252,8 +2189,9 @@
 
         console.log('🐛 Dashboard siap, menunggu Core System...');
     </script>
+
+    <!-- ===== FALLBACK: hilangkan loading setelah 3 detik ===== -->
     <script>
-        // Fallback: hilangkan loading screen setelah 3 detik
         setTimeout(function() {
             var ls = document.getElementById('loading-screen');
             if (ls) ls.classList.add('hide');

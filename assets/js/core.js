@@ -61,7 +61,7 @@
             // Telegram
             TELEGRAM_LOG: 'telegram/log'
         },
-        SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbxxPaoD5p4MjD_Mb3kGciAaqU6R6ttm8sCmNqUetrWOvsU74BACq1tVP8fpsmSYFaiW4w/exec',
+        SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbxKOjtJQ4kF4biMhOo9kjWTwtlW82d48nsvFi1qzS9qz2GEsuZhudHSDgdyxQPlaemXXw/exec',
         PUBLISH_INTERVAL: 2000,
         HEARTBEAT_INTERVAL: 10000,
         SPREADSHEET_HEALTH_INTERVAL: 30000,

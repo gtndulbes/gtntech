@@ -14,11 +14,9 @@
 
     <!-- ============================================================ -->
     <!--  CORE SYSTEM – WAJIB dimuat sebelum sync.js dan modul lain   -->
-    <!--  core.js menyediakan StateManager, MqttManager, CONFIG, dll  -->
     <!-- ============================================================ -->
     <script src="assets/js/core.js"></script>
     <script src="assets/js/sync.js"></script>
-    <!-- mqtt-config.js TIDAK diperlukan karena core.js sudah mengekspos semua -->
 
     <style>
         /* ===== RESET & BASE ===== */
@@ -1151,10 +1149,10 @@
     </div>
 
     <!-- ============================================================ -->
-    <!-- ===== JAVASCRIPT ===== -->
+    <!-- ===== JAVASCRIPT (PERBAIKAN FINAL) ===== -->
     <script>
         // =============================================================
-        // 1. KONFIGURASI UNTUK CORE
+        // 1. KONFIGURASI
         // =============================================================
         var APP_CONFIG = {
             SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA/exec',
@@ -1163,15 +1161,16 @@
         };
 
         // =============================================================
-        // 2. STATE REFERENCE (dari Core)
+        // 2. REFERENSI GLOBAL
         // =============================================================
         var stateManager = null;
         var mqttManager = null;
         var syncModule = null;
         var initialized = false;
+        var uiUpdateInterval = null;
 
         // =============================================================
-        // 3. UTILITY FUNCTIONS
+        // 3. UTILITY
         // =============================================================
         function formatTime(d) {
             d = d || new Date();
@@ -1195,7 +1194,7 @@
         }
 
         // =============================================================
-        // 4. TOAST & UI HELPERS
+        // 4. TOAST
         // =============================================================
         function showToast(message, type, duration) {
             type = type || 'info';
@@ -1233,7 +1232,7 @@
         }
 
         // =============================================================
-        // 5. GET STATE FROM CORE
+        // 5. STATE HELPERS (langsung dari window.StateManager)
         // =============================================================
         function getState(key) {
             if (stateManager) {
@@ -1261,29 +1260,149 @@
         }
 
         // =============================================================
-        // 6. PUBLISH CONTROL VIA CORE
+        // 6. PUBLISH CONTROL VIA MQTT
         // =============================================================
         function publishControl(command) {
-            if (mqttManager && typeof mqttManager.publish === 'function') {
-                mqttManager.publish('actuator/control', command);
+            var target = mqttManager || window.mqttManager;
+            if (target && typeof target.publish === 'function') {
+                target.publish('actuator/control', command);
+            } else if (target && target.client && typeof target.client.publish === 'function') {
+                target.client.publish('actuator/control', JSON.stringify(command));
             }
             // Sync via SyncModule
             if (syncModule && typeof syncModule.updateLocalState === 'function') {
-                syncModule.updateLocalState(command, mqttManager);
+                syncModule.updateLocalState(command, target);
             }
-            // Direct fallback
-            if (window.mqttManager && typeof window.mqttManager.publish === 'function') {
-                window.mqttManager.publish('actuator/control', command);
-            }
+            console.log('[Kontrol] Published:', command);
         }
 
         // =============================================================
-        // 7. UI UPDATE FUNCTIONS
+        // 7. UI UPDATE – DIPANGGIL SETIAP DETIK
         // =============================================================
-        function updateStatusIndicators() {
-            var mqttConnected = getState('isMqttConnected') || false;
-            var wifiConnected = getState('wifiStatus') === 'online' || true;
-            var sheetConnected = getState('isSpreadsheetConnected') || false;
+        function updateUI() {
+            // Ambil state dari SyncModule atau StateManager
+            var state;
+            if (syncModule && typeof syncModule.getState === 'function') {
+                state = syncModule.getState();
+            } else if (stateManager) {
+                if (typeof stateManager.getState === 'function') {
+                    state = stateManager.getState();
+                } else {
+                    state = {
+                        mode: stateManager.get('mode'),
+                        peltierOn: stateManager.get('peltierOn'),
+                        peltierPwm: stateManager.get('peltierPwm'),
+                        fanOn: stateManager.get('fanOn'),
+                        fanPwm: stateManager.get('fanPwm'),
+                        coolFanOn: stateManager.get('coolFanOn'),
+                        coolFanPwm: stateManager.get('coolFanPwm'),
+                        setpointTemp: stateManager.get('setpointTemp'),
+                        setpointHum: stateManager.get('setpointHum'),
+                        isMqttConnected: stateManager.get('isMqttConnected'),
+                        wifiStatus: stateManager.get('wifiStatus'),
+                        isSpreadsheetConnected: stateManager.get('isSpreadsheetConnected'),
+                    };
+                }
+            } else {
+                return;
+            }
+
+            if (!state) return;
+
+            var mode = state.mode || 'AUTO';
+            var peltierOn = state.peltierOn || false;
+            var peltierPwm = state.peltierPwm || 0;
+            var fanOn = state.fanOn || false;
+            var fanPwm = state.fanPwm || 0;
+            var coolFanOn = state.coolFanOn || false;
+            var coolFanPwm = state.coolFanPwm || 0;
+            var setpointTemp = state.setpointTemp || 27.5;
+            var setpointHum = state.setpointHum || 75;
+
+            // Log setiap 10 detik
+            if (Math.floor(Date.now() / 10000) !== Math.floor((Date.now() - 10000) / 10000)) {
+                console.log('[Kontrol] State values:', { mode, peltierOn, peltierPwm, fanOn, fanPwm, coolFanOn,
+                    coolFanPwm, setpointTemp, setpointHum });
+            }
+
+            // ---- Mode UI ----
+            var badge = document.getElementById('modeBadge');
+            var statusText = document.getElementById('modeStatus');
+            var isAuto = mode === 'AUTO';
+            if (badge) {
+                badge.textContent = isAuto ? 'AUTO' : 'MANUAL';
+                badge.className = 'mode-badge ' + (isAuto ? 'auto' : 'manual');
+            }
+            if (statusText) {
+                statusText.textContent = isAuto ? 'Sistem dikendalikan oleh Fuzzy-PID' :
+                    'Kontrol manual oleh pengguna';
+            }
+
+            // Enable/disable manual controls
+            var manualEnabled = !isAuto;
+            var controlIds = ['peltierToggle', 'peltierSlider', 'fanToggle', 'fanSlider', 'coolFanToggle', 'coolFanSlider',
+                'peltierMinBtn', 'peltierMidBtn', 'peltierMaxBtn',
+                'fanMinBtn', 'fanMidBtn', 'fanMaxBtn',
+                'coolFanMinBtn', 'coolFanMidBtn', 'coolFanMaxBtn'
+            ];
+            controlIds.forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.disabled = !manualEnabled;
+            });
+
+            // ---- Peltier ----
+            var peltierToggle = document.getElementById('peltierToggle');
+            if (peltierToggle) peltierToggle.className = 'toggle ' + (peltierOn ? 'on' : '');
+            var peltierStatus = document.getElementById('peltierStatus');
+            if (peltierStatus) {
+                peltierStatus.textContent = peltierOn ? 'ON' : 'OFF';
+                peltierStatus.style.color = peltierOn ? '#2a9d8f' : '#8892a8';
+            }
+            var peltierSlider = document.getElementById('peltierSlider');
+            if (peltierSlider && !peltierSlider.disabled) peltierSlider.value = safeNumber(peltierPwm, 0);
+            var peltierPwmDisplay = document.getElementById('peltierPwmDisplay');
+            if (peltierPwmDisplay) peltierPwmDisplay.textContent = formatValue(peltierPwm, 0) + '%';
+
+            // ---- Fan ----
+            var fanToggle = document.getElementById('fanToggle');
+            if (fanToggle) fanToggle.className = 'toggle ' + (fanOn ? 'on' : '');
+            var fanStatus = document.getElementById('fanStatus');
+            if (fanStatus) {
+                fanStatus.textContent = fanOn ? 'ON' : 'OFF';
+                fanStatus.style.color = fanOn ? '#2a9d8f' : '#8892a8';
+            }
+            var fanSlider = document.getElementById('fanSlider');
+            if (fanSlider && !fanSlider.disabled) fanSlider.value = safeNumber(fanPwm, 0);
+            var fanPwmDisplay = document.getElementById('fanPwmDisplay');
+            if (fanPwmDisplay) fanPwmDisplay.textContent = formatValue(fanPwm, 0) + '%';
+
+            // ---- Cool Fan ----
+            var coolToggle = document.getElementById('coolFanToggle');
+            if (coolToggle) coolToggle.className = 'toggle ' + (coolFanOn ? 'on' : '');
+            var coolStatus = document.getElementById('coolFanStatus');
+            if (coolStatus) {
+                coolStatus.textContent = coolFanOn ? 'ON' : 'OFF';
+                coolStatus.style.color = coolFanOn ? '#2a9d8f' : '#8892a8';
+            }
+            var coolSlider = document.getElementById('coolFanSlider');
+            if (coolSlider && !coolSlider.disabled) coolSlider.value = safeNumber(coolFanPwm, 0);
+            var coolPwmDisplay = document.getElementById('coolFanPwmDisplay');
+            if (coolPwmDisplay) coolPwmDisplay.textContent = formatValue(coolFanPwm, 0) + '%';
+
+            // ---- Setpoint ----
+            var tempDisplay = document.getElementById('setpointTempDisplay');
+            if (tempDisplay) tempDisplay.textContent = formatValue(setpointTemp, 1) + ' °C';
+            var tempSlider = document.getElementById('setpointTempSlider');
+            if (tempSlider) tempSlider.value = safeNumber(setpointTemp, 27.5);
+            var humDisplay = document.getElementById('setpointHumDisplay');
+            if (humDisplay) humDisplay.textContent = formatValue(setpointHum, 0) + ' %';
+            var humSlider = document.getElementById('setpointHumSlider');
+            if (humSlider) humSlider.value = safeNumber(setpointHum, 75);
+
+            // ---- Status indicators ----
+            var mqttConnected = state.isMqttConnected || false;
+            var wifiConnected = state.wifiStatus === 'online' || true;
+            var sheetConnected = state.isSpreadsheetConnected || false;
 
             var setDot = function(id, online) {
                 var el = document.getElementById(id);
@@ -1294,117 +1413,22 @@
             setDot('sheetDot', sheetConnected);
         }
 
-        function updateModeUI() {
-            var mode = getState('mode') || 'AUTO';
-            var badge = document.getElementById('modeBadge');
-            var status = document.getElementById('modeStatus');
-            var isAuto = mode === 'AUTO';
-
-            if (badge) {
-                badge.textContent = isAuto ? 'AUTO' : 'MANUAL';
-                badge.className = 'mode-badge ' + (isAuto ? 'auto' : 'manual');
-            }
-            if (status) {
-                status.textContent = isAuto ? 'Sistem dikendalikan oleh Fuzzy-PID' :
-                    'Kontrol manual oleh pengguna';
-            }
-
-            var manualEnabled = !isAuto;
-            var ids = ['peltierToggle', 'peltierSlider', 'fanToggle', 'fanSlider', 'coolFanToggle', 'coolFanSlider',
-                'peltierMinBtn', 'peltierMidBtn', 'peltierMaxBtn',
-                'fanMinBtn', 'fanMidBtn', 'fanMaxBtn',
-                'coolFanMinBtn', 'coolFanMidBtn', 'coolFanMaxBtn'
-            ];
-            ids.forEach(function(id) {
-                var el = document.getElementById(id);
-                if (el) el.disabled = !manualEnabled;
-            });
-        }
-
-        function updateActuatorUI() {
-            var peltierOn = getState('peltierOn') || false;
-            var peltierPwm = getState('peltierPwm') || 0;
-            var fanOn = getState('fanOn') || false;
-            var fanPwm = getState('fanPwm') || 0;
-            var coolFanOn = getState('coolFanOn') || false;
-            var coolFanPwm = getState('coolFanPwm') || 0;
-
-            var peltierToggle = document.getElementById('peltierToggle');
-            if (peltierToggle) peltierToggle.className = 'toggle ' + (peltierOn ? 'on' : '');
-            var peltierStatus = document.getElementById('peltierStatus');
-            if (peltierStatus) {
-                peltierStatus.textContent = peltierOn ? 'ON' : 'OFF';
-                peltierStatus.style.color = peltierOn ? '#2a9d8f' : '#8892a8';
-            }
-            var peltierSlider = document.getElementById('peltierSlider');
-            if (peltierSlider) peltierSlider.value = safeNumber(peltierPwm, 0);
-            var peltierPwmDisplay = document.getElementById('peltierPwmDisplay');
-            if (peltierPwmDisplay) peltierPwmDisplay.textContent = formatValue(peltierPwm, 0) + '%';
-
-            var fanToggle = document.getElementById('fanToggle');
-            if (fanToggle) fanToggle.className = 'toggle ' + (fanOn ? 'on' : '');
-            var fanStatus = document.getElementById('fanStatus');
-            if (fanStatus) {
-                fanStatus.textContent = fanOn ? 'ON' : 'OFF';
-                fanStatus.style.color = fanOn ? '#2a9d8f' : '#8892a8';
-            }
-            var fanSlider = document.getElementById('fanSlider');
-            if (fanSlider) fanSlider.value = safeNumber(fanPwm, 0);
-            var fanPwmDisplay = document.getElementById('fanPwmDisplay');
-            if (fanPwmDisplay) fanPwmDisplay.textContent = formatValue(fanPwm, 0) + '%';
-
-            var coolToggle = document.getElementById('coolFanToggle');
-            if (coolToggle) coolToggle.className = 'toggle ' + (coolFanOn ? 'on' : '');
-            var coolStatus = document.getElementById('coolFanStatus');
-            if (coolStatus) {
-                coolStatus.textContent = coolFanOn ? 'ON' : 'OFF';
-                coolStatus.style.color = coolFanOn ? '#2a9d8f' : '#8892a8';
-            }
-            var coolSlider = document.getElementById('coolFanSlider');
-            if (coolSlider) coolSlider.value = safeNumber(coolFanPwm, 0);
-            var coolPwmDisplay = document.getElementById('coolFanPwmDisplay');
-            if (coolPwmDisplay) coolPwmDisplay.textContent = formatValue(coolFanPwm, 0) + '%';
-        }
-
-        function updateSetpointUI() {
-            var setpointTemp = getState('setpointTemp') || 27.5;
-            var setpointHum = getState('setpointHum') || 75;
-
-            var tempDisplay = document.getElementById('setpointTempDisplay');
-            if (tempDisplay) tempDisplay.textContent = formatValue(setpointTemp, 1) + ' °C';
-            var tempSlider = document.getElementById('setpointTempSlider');
-            if (tempSlider) tempSlider.value = safeNumber(setpointTemp, 27.5);
-            var humDisplay = document.getElementById('setpointHumDisplay');
-            if (humDisplay) humDisplay.textContent = formatValue(setpointHum, 0) + ' %';
-            var humSlider = document.getElementById('setpointHumSlider');
-            if (humSlider) humSlider.value = safeNumber(setpointHum, 75);
-        }
-
-        function updateAllUI() {
-            updateModeUI();
-            updateActuatorUI();
-            updateSetpointUI();
-            updateStatusIndicators();
-        }
-
         // =============================================================
         // 8. MODE CONTROLS
         // =============================================================
         document.getElementById('modeAutoBtn').addEventListener('click', function() {
-            var mode = getState('mode') || 'AUTO';
-            if (mode === 'AUTO') { showToast('Sudah dalam mode AUTO', 'info'); return; }
+            var currentMode = getState('mode') || 'AUTO';
+            if (currentMode === 'AUTO') { showToast('Sudah dalam mode AUTO', 'info'); return; }
             setState('mode', 'AUTO', { publish: true, sync: true });
             publishControl({ mode: 'AUTO' });
-            updateAllUI();
             showToast('Mode AUTO diaktifkan (Fuzzy-PID)', 'success');
         });
 
         document.getElementById('modeManualBtn').addEventListener('click', function() {
-            var mode = getState('mode') || 'AUTO';
-            if (mode === 'MANUAL') { showToast('Sudah dalam mode MANUAL', 'info'); return; }
+            var currentMode = getState('mode') || 'AUTO';
+            if (currentMode === 'MANUAL') { showToast('Sudah dalam mode MANUAL', 'info'); return; }
             setState('mode', 'MANUAL', { publish: true, sync: true });
             publishControl({ mode: 'MANUAL' });
-            updateAllUI();
             showToast('Mode MANUAL diaktifkan', 'success');
         });
 
@@ -1415,6 +1439,9 @@
             var toggle = document.getElementById(id + 'Toggle');
             var slider = document.getElementById(id + 'Slider');
             var display = document.getElementById(id + 'PwmDisplay');
+            var minBtn = document.getElementById(id + 'MinBtn');
+            var midBtn = document.getElementById(id + 'MidBtn');
+            var maxBtn = document.getElementById(id + 'MaxBtn');
 
             if (toggle) {
                 toggle.addEventListener('click', function() {
@@ -1435,7 +1462,6 @@
                     cmd[onKey] = newState;
                     cmd[pwmKey] = getState(pwmKey) || 0;
                     publishControl(cmd);
-                    updateActuatorUI();
                     showToast(onKey + ' ' + (newState ? 'ON' : 'OFF'), 'success');
                 });
             }
@@ -1448,24 +1474,15 @@
                     setState(pwmKey, val, { publish: true, sync: true });
                     if (display) display.textContent = val + '%';
                     var currentOn = getState(onKey) || false;
+                    var cmd = {};
+                    cmd[pwmKey] = val;
                     if (val > 0 && !currentOn) {
                         setState(onKey, true, { publish: true, sync: true });
-                        var cmd = {};
                         cmd[onKey] = true;
-                        cmd[pwmKey] = val;
-                        publishControl(cmd);
-                    } else {
-                        var cmd = {};
-                        cmd[pwmKey] = val;
-                        publishControl(cmd);
                     }
-                    updateActuatorUI();
+                    publishControl(cmd);
                 });
             }
-
-            var minBtn = document.getElementById(id + 'MinBtn');
-            var midBtn = document.getElementById(id + 'MidBtn');
-            var maxBtn = document.getElementById(id + 'MaxBtn');
 
             if (minBtn) {
                 minBtn.addEventListener('click', function() {
@@ -1475,18 +1492,12 @@
                     if (slider) slider.value = 0;
                     if (display) display.textContent = '0%';
                     var currentOn = getState(onKey) || false;
+                    var cmd = { pwmKey: 0 };
                     if (currentOn) {
                         setState(onKey, false, { publish: true, sync: true });
-                        var cmd = {};
                         cmd[onKey] = false;
-                        cmd[pwmKey] = 0;
-                        publishControl(cmd);
-                    } else {
-                        var cmd = {};
-                        cmd[pwmKey] = 0;
-                        publishControl(cmd);
                     }
-                    updateActuatorUI();
+                    publishControl(cmd);
                     showToast(onKey + ' 0%', 'info');
                 });
             }
@@ -1499,18 +1510,12 @@
                     if (slider) slider.value = mid;
                     if (display) display.textContent = mid + '%';
                     var currentOn = getState(onKey) || false;
+                    var cmd = { pwmKey: mid };
                     if (!currentOn) {
                         setState(onKey, true, { publish: true, sync: true });
-                        var cmd = {};
                         cmd[onKey] = true;
-                        cmd[pwmKey] = mid;
-                        publishControl(cmd);
-                    } else {
-                        var cmd = {};
-                        cmd[pwmKey] = mid;
-                        publishControl(cmd);
                     }
-                    updateActuatorUI();
+                    publishControl(cmd);
                     showToast(onKey + ' 50%', 'info');
                 });
             }
@@ -1523,18 +1528,12 @@
                     if (slider) slider.value = max;
                     if (display) display.textContent = max + '%';
                     var currentOn = getState(onKey) || false;
+                    var cmd = { pwmKey: max };
                     if (!currentOn) {
                         setState(onKey, true, { publish: true, sync: true });
-                        var cmd = {};
                         cmd[onKey] = true;
-                        cmd[pwmKey] = max;
-                        publishControl(cmd);
-                    } else {
-                        var cmd = {};
-                        cmd[pwmKey] = max;
-                        publishControl(cmd);
                     }
-                    updateActuatorUI();
+                    publishControl(cmd);
                     showToast(onKey + ' 100%', 'info');
                 });
             }
@@ -1567,8 +1566,9 @@
                 setpointHum: setpointHum
             });
             // Publish via setting/update
-            if (mqttManager && typeof mqttManager.publish === 'function') {
-                mqttManager.publish('setting/update', {
+            var target = mqttManager || window.mqttManager;
+            if (target && typeof target.publish === 'function') {
+                target.publish('setting/update', {
                     setpointTemp: setpointTemp,
                     setpointHum: setpointHum
                 });
@@ -1606,7 +1606,6 @@
                             coolFanOn: false,
                             coolFanPwm: 0
                         });
-                        updateAllUI();
                         showToast('🚨 Emergency Stop activated! Semua aktuator mati.', 'error');
                     }
                 });
@@ -1614,33 +1613,33 @@
 
         document.getElementById('resetSystemBtn').addEventListener('click', function() {
             showModal('Reset System', 'Reset semua parameter ke nilai default?', 'Reset', 'Batal',
-            function(confirmed) {
-                if (confirmed) {
-                    var updates = {
-                        peltierOn: false,
-                        peltierPwm: 0,
-                        fanOn: false,
-                        fanPwm: 0,
-                        coolFanOn: false,
-                        coolFanPwm: 0,
-                        setpointTemp: 27.5,
-                        setpointHum: 75
-                    };
-                    for (var key in updates) {
-                        setState(key, updates[key], { publish: true, sync: true });
+                function(confirmed) {
+                    if (confirmed) {
+                        var updates = {
+                            peltierOn: false,
+                            peltierPwm: 0,
+                            fanOn: false,
+                            fanPwm: 0,
+                            coolFanOn: false,
+                            coolFanPwm: 0,
+                            setpointTemp: 27.5,
+                            setpointHum: 75
+                        };
+                        for (var key in updates) {
+                            setState(key, updates[key], { publish: true, sync: true });
+                        }
+                        publishControl({ reset: true });
+                        showToast('System reset berhasil', 'success');
                     }
-                    publishControl({ reset: true });
-                    updateAllUI();
-                    showToast('System reset berhasil', 'success');
-                }
-            });
+                });
         });
 
         document.getElementById('restartEspBtn').addEventListener('click', function() {
             showModal('Restart ESP32', 'Kirim perintah restart ke ESP32?', 'Restart', 'Batal', function(confirmed) {
                 if (confirmed) {
-                    if (mqttManager && typeof mqttManager.publish === 'function') {
-                        mqttManager.publish('system/control', { command: 'restart' });
+                    var target = mqttManager || window.mqttManager;
+                    if (target && typeof target.publish === 'function') {
+                        target.publish('system/control', { command: 'restart' });
                         showToast('Perintah restart dikirim ke ESP32', 'success');
                     } else {
                         showToast('MQTT tidak terhubung', 'error');
@@ -1662,11 +1661,12 @@
                 setpointHum: getState('setpointHum') || 75,
                 timestamp: new Date().toISOString()
             };
-            if (mqttManager && typeof mqttManager.publish === 'function') {
-                mqttManager.publish('actuator/status', status);
+            var target = mqttManager || window.mqttManager;
+            if (target && typeof target.publish === 'function') {
+                target.publish('actuator/status', status);
             }
             if (syncModule && typeof syncModule.updateLocalState === 'function') {
-                syncModule.updateLocalState(status, mqttManager);
+                syncModule.updateLocalState(status, target);
             }
             showToast('Status dipublikasikan', 'success');
         });
@@ -1703,16 +1703,7 @@
         });
 
         // =============================================================
-        // 13. SINKRONISASI DARI SyncModule
-        // =============================================================
-        if (typeof SyncModule !== 'undefined') {
-            SyncModule.setOnStateChange(function(syncState) {
-                updateAllUI();
-            });
-        }
-
-        // =============================================================
-        // 14. CLOCK & SIDEBAR
+        // 13. CLOCK & SIDEBAR
         // =============================================================
         function updateClock() {
             document.getElementById('clock').textContent = formatTime();
@@ -1732,98 +1723,69 @@
         });
 
         // =============================================================
-        // 15. INIT
+        // 14. INITIALIZATION (FINAL)
         // =============================================================
         function init() {
-            if (initialized) return;
-            initialized = true;
+            console.log('[Kontrol] init called');
 
-            // Tunggu Core siap
-            if (typeof Core === 'undefined' || !Core.initialized) {
-                setTimeout(init, 500);
+            if (initialized) {
+                console.log('[Kontrol] Already initialized');
                 return;
             }
 
-            stateManager = Core.getStateManager ? Core.getStateManager() : null;
-            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
-            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+            // Tunggu Core dan Sync siap
+            if (typeof window.SyncModule === 'undefined') {
+                console.log('[Kontrol] Menunggu SyncModule siap...');
+                setTimeout(init, 300);
+                return;
+            }
+
+            stateManager = window.StateManager || null;
+            mqttManager = window.MqttManager || window.mqttManager || null;
+            syncModule = window.SyncModule || null;
 
             if (!stateManager) {
-                console.warn('StateManager tidak tersedia, gunakan fallback');
+                console.error('[Kontrol] StateManager tidak ditemukan!');
                 stateManager = {
-                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
-                    set: function(key, value) {
-                        window.__fallbackState = window.__fallbackState || {};
-                        window.__fallbackState[key] = value;
-                    },
-                    addListener: function() {}
-                };
-                window.__fallbackState = {
-                    mode: 'AUTO',
-                    peltierOn: false,
-                    peltierPwm: 0,
-                    fanOn: false,
-                    fanPwm: 0,
-                    coolFanOn: false,
-                    coolFanPwm: 0,
-                    setpointTemp: 27.5,
-                    setpointHum: 75
+                    get: function() { return null; },
+                    set: function() {},
+                    addListener: function() {},
+                    update: function() {}
                 };
             }
 
-            // Inisialisasi Core jika belum
-            if (typeof Core.init === 'function' && !Core.initialized) {
-                Core.init({
-                    config: {
-                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
-                    },
-                    telegram: {
-                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
-                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
-                    }
-                });
-            }
-
-            // Subscribe ke perubahan state via StateManager
-            if (stateManager && typeof stateManager.addListener === 'function') {
-                stateManager.addListener('*', function(key, value, oldValue) {
-                    updateAllUI();
-                });
-            }
-
-            // Gunakan SyncModule untuk sinkronisasi antar user
-            if (syncModule && typeof syncModule.subscribeState === 'function') {
-                syncModule.subscribeState(mqttManager);
-                syncModule.setOnStateChange(function(state) {
-                    updateAllUI();
-                });
-            }
-
-            // Update UI pertama kali
-            updateAllUI();
+            console.log('[Kontrol] stateManager:', stateManager);
+            console.log('[Kontrol] mqttManager:', mqttManager);
+            console.log('[Kontrol] syncModule:', syncModule);
 
             // Sembunyikan loading
             var loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
-                setTimeout(function() { loadingScreen.classList.add('hide'); }, 800);
+                setTimeout(function() { loadingScreen.classList.add('hide'); }, 500);
             }
 
-            // Update status periodik
-            setInterval(function() {
-                updateStatusIndicators();
-            }, 10000);
+            // POLLING SETIAP 1 DETIK – PASTIKAN UI SELALU UPDATE
+            if (uiUpdateInterval) clearInterval(uiUpdateInterval);
+            uiUpdateInterval = setInterval(function() {
+                updateUI();
+            }, 1000);
 
-            addNotification('Kontrol siap dengan Core System', 'success');
-            console.log('🎛 Kontrol menggunakan Core System v3.0');
+            // Update pertama
+            setTimeout(updateUI, 100);
+
+            addNotification('Kontrol siap', 'success');
+            console.log('🎛 Kontrol FINAL siap dengan polling 1 detik');
+
+            initialized = true;
         }
 
         // =============================================================
-        // 16. START
+        // 15. START
         // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            setTimeout(init, 300);
+            setTimeout(init, 200);
         }
 
         // Fallback: hilangkan loading screen setelah 3 detik
@@ -1837,7 +1799,9 @@
         window.__mqttManager = mqttManager;
         window.__syncModule = syncModule;
         window.__publishControl = publishControl;
-        console.log('🎛 Kontrol siap, menunggu Core System...');
+        window.__updateUI = updateUI;
+
+        console.log('🎛 Kontrol siap, menunggu inisialisasi...');
     </script>
 
 </body>

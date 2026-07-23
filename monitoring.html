@@ -16,11 +16,9 @@
 
     <!-- ============================================================ -->
     <!--  CORE SYSTEM – WAJIB dimuat sebelum sync.js dan modul lain   -->
-    <!--  core.js menyediakan StateManager, MqttManager, CONFIG, dll  -->
     <!-- ============================================================ -->
     <script src="assets/js/core.js"></script>
     <script src="assets/js/sync.js"></script>
-    <!-- mqtt-config.js TIDAK diperlukan karena core.js sudah mengekspos semua -->
 
     <!-- STYLE (sama seperti sebelumnya, tidak diubah) -->
     <style>
@@ -1044,10 +1042,10 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- ============================================================ -->
-    <!-- ===== JAVASCRIPT ===== -->
+    <!-- ===== JAVASCRIPT (PERBAIKAN FINAL) ===== -->
     <script>
         // =============================================================
-        // 1. KONFIGURASI UNTUK CORE
+        // 1. KONFIGURASI
         // =============================================================
         var APP_CONFIG = {
             SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA/exec',
@@ -1056,18 +1054,18 @@
         };
 
         // =============================================================
-        // 2. STATE REFERENCE (dari Core)
+        // 2. REFERENSI GLOBAL
         // =============================================================
         var stateManager = null;
-        var mqttManager = null;
         var syncModule = null;
         var chart = null;
         var chartData = { labels: [], temp: [], hum: [], nh3: [], pwmPeltier: [], pwmFan: [], pwmCool: [] };
         var tableData = [];
         var initialized = false;
+        var uiUpdateInterval = null;
 
         // =============================================================
-        // 3. UTILITY FUNCTIONS
+        // 3. UTILITY
         // =============================================================
         function formatTime(d) {
             d = d || new Date();
@@ -1091,7 +1089,7 @@
         }
 
         // =============================================================
-        // 4. TOAST & UI HELPERS
+        // 4. TOAST
         // =============================================================
         function showToast(message, type, duration) {
             type = type || 'info';
@@ -1129,100 +1127,140 @@
         }
 
         // =============================================================
-        // 5. UI UPDATE FUNCTIONS (dari state)
+        // 5. UI UPDATE – DIPANGGIL SETIAP DETIK
         // =============================================================
-        function updateSensorDisplay() {
-            var temp = stateManager ? stateManager.get('temperature') : null;
-            var hum = stateManager ? stateManager.get('humidity') : null;
-            var nh3 = stateManager ? stateManager.get('nh3') : null;
-
-            var tempValue = safeNumber(temp, 0);
-            var humValue = safeNumber(hum, 0);
-            var nh3Value = safeNumber(nh3, 0);
-
-            var tempVal = document.getElementById('gaugeTempVal');
-            if (tempVal) tempVal.textContent = formatValue(temp, 1);
-            var humVal = document.getElementById('gaugeHumVal');
-            if (humVal) humVal.textContent = formatValue(hum, 1);
-            var nh3Val = document.getElementById('gaugeNh3Val');
-            if (nh3Val) nh3Val.textContent = formatValue(nh3, 1);
-
-            // Min/Max/Avg belum dihitung dari Core, tapi kita bisa update nanti
-            // Untuk sementara, kita isi dengan nilai saat ini saja agar tidak kosong
-            var tempMin = document.getElementById('tempMin');
-            if (tempMin) tempMin.textContent = formatValue(temp, 1);
-            var tempMax = document.getElementById('tempMax');
-            if (tempMax) tempMax.textContent = formatValue(temp, 1);
-            var tempAvg = document.getElementById('tempAvg');
-            if (tempAvg) tempAvg.textContent = formatValue(temp, 1);
-
-            var humMin = document.getElementById('humMin');
-            if (humMin) humMin.textContent = formatValue(hum, 1);
-            var humMax = document.getElementById('humMax');
-            if (humMax) humMax.textContent = formatValue(hum, 1);
-            var humAvg = document.getElementById('humAvg');
-            if (humAvg) humAvg.textContent = formatValue(hum, 1);
-
-            var nh3Min = document.getElementById('nh3Min');
-            if (nh3Min) nh3Min.textContent = formatValue(nh3, 1);
-            var nh3Max = document.getElementById('nh3Max');
-            if (nh3Max) nh3Max.textContent = formatValue(nh3, 1);
-            var nh3Avg = document.getElementById('nh3Avg');
-            if (nh3Avg) nh3Avg.textContent = formatValue(nh3, 1);
-
-            var tempProgress = document.getElementById('tempProgress');
-            if (tempProgress) {
-                var tempPct = ((tempValue - 24) / (29 - 24)) * 100;
-                tempProgress.style.width = clamp(tempPct, 0, 100) + '%';
-                tempProgress.style.background = tempValue > 29 ? '#e74c3c' : tempValue < 26 ? '#f1c40f' : '#2a9d8f';
+        function updateUI() {
+            // Gunakan SyncModule jika tersedia, atau StateManager langsung
+            var state;
+            if (syncModule && typeof syncModule.getState === 'function') {
+                state = syncModule.getState();
+            } else if (stateManager) {
+                if (typeof stateManager.getState === 'function') {
+                    state = stateManager.getState();
+                } else {
+                    state = {
+                        temperature: stateManager.get('temperature'),
+                        humidity: stateManager.get('humidity'),
+                        nh3: stateManager.get('nh3'),
+                        peltierPwm: stateManager.get('peltierPwm'),
+                        fanPwm: stateManager.get('fanPwm'),
+                        coolFanPwm: stateManager.get('coolFanPwm'),
+                        mode: stateManager.get('mode'),
+                        isMqttConnected: stateManager.get('isMqttConnected'),
+                        wifiStatus: stateManager.get('wifiStatus'),
+                        isSpreadsheetConnected: stateManager.get('isSpreadsheetConnected'),
+                    };
+                }
+            } else {
+                console.warn('[Monitoring] Tidak ada stateManager');
+                return;
             }
 
-            var humProgress = document.getElementById('humProgress');
-            if (humProgress) {
-                var humPct = ((humValue - 60) / (90 - 60)) * 100;
-                humProgress.style.width = clamp(humPct, 0, 100) + '%';
-                humProgress.style.background = humValue > 90 ? '#e74c3c' : humValue < 60 ? '#f1c40f' : '#3498db';
+            if (!state) return;
+
+            var temp = state.temperature;
+            var hum = state.humidity;
+            var nh3 = state.nh3;
+            var peltierPwm = state.peltierPwm || 0;
+            var fanPwm = state.fanPwm || 0;
+            var coolFanPwm = state.coolFanPwm || 0;
+            var mode = state.mode || 'AUTO';
+
+            // Log setiap 10 detik
+            if (Math.floor(Date.now() / 10000) !== Math.floor((Date.now() - 10000) / 10000)) {
+                console.log('[Monitoring] State values:', { temp, hum, nh3, peltierPwm, fanPwm, coolFanPwm, mode });
             }
 
-            var nh3Progress = document.getElementById('nh3Progress');
-            if (nh3Progress) {
-                var nh3Pct = (nh3Value / 25) * 100;
-                nh3Progress.style.width = clamp(nh3Pct, 0, 100) + '%';
-                nh3Progress.style.background = nh3Value > 25 ? '#e74c3c' : nh3Value > 15 ? '#f1c40f' : '#2a9d8f';
-            }
+            // ---- Gauge values ----
+            var gaugeTempVal = document.getElementById('gaugeTempVal');
+            if (gaugeTempVal) gaugeTempVal.textContent = (temp !== null && temp !== undefined) ? Number(temp).toFixed(1) :
+                '--';
+            var gaugeHumVal = document.getElementById('gaugeHumVal');
+            if (gaugeHumVal) gaugeHumVal.textContent = (hum !== null && hum !== undefined) ? Number(hum).toFixed(1) :
+                '--';
+            var gaugeNh3Val = document.getElementById('gaugeNh3Val');
+            if (gaugeNh3Val) gaugeNh3Val.textContent = (nh3 !== null && nh3 !== undefined) ? Number(nh3).toFixed(1) :
+                '--';
 
-            var hasTemp = temp !== null && temp !== undefined && !Number.isNaN(Number(temp));
+            // ---- Badges ----
+            var tempVal = safeNumber(temp, 24);
             var tempBadge = document.getElementById('tempBadge');
             if (tempBadge) {
-                tempBadge.textContent = !hasTemp ? 'Menunggu' : tempValue > 29 ? 'Panas' : tempValue < 26 ? 'Dingin' :
+                var hasTemp = temp !== null && temp !== undefined && !Number.isNaN(Number(temp));
+                tempBadge.textContent = !hasTemp ? 'Menunggu' : tempVal > 29 ? 'Panas' : tempVal < 26 ? 'Dingin' :
                     'Normal';
-                tempBadge.className = 'status-badge ' + (!hasTemp ? 'normal' : tempValue > 29 ? 'danger' : tempValue < 26 ?
+                tempBadge.className = 'status-badge ' + (!hasTemp ? 'normal' : tempVal > 29 ? 'danger' : tempVal < 26 ?
                     'warning' : 'normal');
             }
 
-            var hasHum = hum !== null && hum !== undefined && !Number.isNaN(Number(hum));
+            var humVal = safeNumber(hum, 70);
             var humBadge = document.getElementById('humBadge');
             if (humBadge) {
-                humBadge.textContent = !hasHum ? 'Menunggu' : humValue > 90 ? 'Basah' : humValue < 60 ? 'Kering' :
+                var hasHum = hum !== null && hum !== undefined && !Number.isNaN(Number(hum));
+                humBadge.textContent = !hasHum ? 'Menunggu' : humVal > 90 ? 'Basah' : humVal < 60 ? 'Kering' :
                 'Normal';
-                humBadge.className = 'status-badge ' + (!hasHum ? 'normal' : humValue > 90 ? 'danger' : humValue < 60 ?
+                humBadge.className = 'status-badge ' + (!hasHum ? 'normal' : humVal > 90 ? 'danger' : humVal < 60 ?
                     'warning' : 'normal');
             }
 
-            var hasNh3 = nh3 !== null && nh3 !== undefined && !Number.isNaN(Number(nh3));
+            var nh3Val = safeNumber(nh3, 2);
             var nh3Badge = document.getElementById('nh3Badge');
             if (nh3Badge) {
-                nh3Badge.textContent = !hasNh3 ? 'Menunggu' : nh3Value > 25 ? 'Berbahaya' : nh3Value > 15 ? 'Waspada' :
+                var hasNh3 = nh3 !== null && nh3 !== undefined && !Number.isNaN(Number(nh3));
+                nh3Badge.textContent = !hasNh3 ? 'Menunggu' : nh3Val > 25 ? 'Berbahaya' : nh3Val > 15 ? 'Waspada' :
                     'Normal';
-                nh3Badge.className = 'status-badge ' + (!hasNh3 ? 'normal' : nh3Value > 25 ? 'danger' : nh3Value > 15 ?
+                nh3Badge.className = 'status-badge ' + (!hasNh3 ? 'normal' : nh3Val > 25 ? 'danger' : nh3Val > 15 ?
                     'warning' : 'normal');
             }
-        }
 
-        function updateStatusIndicators() {
-            var mqttConnected = stateManager ? stateManager.get('isMqttConnected') || false : false;
-            var wifiConnected = stateManager ? stateManager.get('wifiStatus') === 'online' : true;
-            var sheetConnected = stateManager ? stateManager.get('isSpreadsheetConnected') || false : true;
+            // ---- Progress bars ----
+            var tempPct = ((tempVal - 24) / (29 - 24)) * 100;
+            var tempProgress = document.getElementById('tempProgress');
+            if (tempProgress) {
+                tempProgress.style.width = clamp(tempPct, 0, 100) + '%';
+                tempProgress.style.background = tempVal > 29 ? '#e74c3c' : tempVal < 26 ? '#f1c40f' : '#2a9d8f';
+            }
+
+            var humPct = ((humVal - 60) / (90 - 60)) * 100;
+            var humProgress = document.getElementById('humProgress');
+            if (humProgress) {
+                humProgress.style.width = clamp(humPct, 0, 100) + '%';
+                humProgress.style.background = humVal > 90 ? '#e74c3c' : humVal < 60 ? '#f1c40f' : '#3498db';
+            }
+
+            var nh3Pct = (nh3Val / 25) * 100;
+            var nh3Progress = document.getElementById('nh3Progress');
+            if (nh3Progress) {
+                nh3Progress.style.width = clamp(nh3Pct, 0, 100) + '%';
+                nh3Progress.style.background = nh3Val > 25 ? '#e74c3c' : nh3Val > 15 ? '#f1c40f' : '#2a9d8f';
+            }
+
+            // ---- Min/Max/Avg (gunakan nilai terbaru sebagai fallback) ----
+            document.getElementById('tempMin').textContent = formatValue(temp, 1);
+            document.getElementById('tempMax').textContent = formatValue(temp, 1);
+            document.getElementById('tempAvg').textContent = formatValue(temp, 1);
+            document.getElementById('humMin').textContent = formatValue(hum, 1);
+            document.getElementById('humMax').textContent = formatValue(hum, 1);
+            document.getElementById('humAvg').textContent = formatValue(hum, 1);
+            document.getElementById('nh3Min').textContent = formatValue(nh3, 1);
+            document.getElementById('nh3Max').textContent = formatValue(nh3, 1);
+            document.getElementById('nh3Avg').textContent = formatValue(nh3, 1);
+
+            // ---- Gauges ----
+            drawGauge('gaugeTemp', temp, 20, 35, '#2a9d8f');
+            drawGauge('gaugeHum', hum, 40, 100, '#3498db');
+            drawGauge('gaugeNh3', nh3, 0, 40, '#f1c40f');
+
+            // ---- Chart ----
+            updateChart(temp, hum, nh3, peltierPwm, fanPwm, coolFanPwm);
+
+            // ---- Table ----
+            updateTable(temp, hum, nh3, peltierPwm, fanPwm, coolFanPwm, mode);
+
+            // ---- Status indicators ----
+            var mqttConnected = state.isMqttConnected || false;
+            var wifiConnected = state.wifiStatus === 'online' || true;
+            var sheetConnected = state.isSpreadsheetConnected || false;
 
             var setDot = function(id, online) {
                 var el = document.getElementById(id);
@@ -1233,16 +1271,8 @@
             setDot('sheetDot', sheetConnected);
         }
 
-        function updateAllUI() {
-            updateSensorDisplay();
-            updateStatusIndicators();
-            updateGauges();
-            updateChartData();
-            updateTable();
-        }
-
         // =============================================================
-        // 6. GAUGES
+        // 6. GAUGE DRAWING
         // =============================================================
         function drawGauge(canvasId, value, min, max, color) {
             var canvas = document.getElementById(canvasId);
@@ -1285,15 +1315,6 @@
             ctx.arc(cx, cy, 6, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(255,255,255,0.08)';
             ctx.fill();
-        }
-
-        function updateGauges() {
-            var temp = stateManager ? stateManager.get('temperature') : null;
-            var hum = stateManager ? stateManager.get('humidity') : null;
-            var nh3 = stateManager ? stateManager.get('nh3') : null;
-            drawGauge('gaugeTemp', temp, 20, 35, '#2a9d8f');
-            drawGauge('gaugeHum', hum, 40, 100, '#3498db');
-            drawGauge('gaugeNh3', nh3, 0, 40, '#f1c40f');
         }
 
         // =============================================================
@@ -1394,25 +1415,18 @@
             });
         }
 
-        function updateChartData() {
+        function updateChart(temp, hum, nh3, peltierPwm, fanPwm, coolFanPwm) {
             if (!chart) return;
             var now = formatTime();
             var maxPoints = 200;
-
-            var temp = stateManager ? stateManager.get('temperature') : null;
-            var hum = stateManager ? stateManager.get('humidity') : null;
-            var nh3 = stateManager ? stateManager.get('nh3') : null;
-            var peltierPwm = stateManager ? stateManager.get('peltierPwm') || 0 : 0;
-            var fanPwm = stateManager ? stateManager.get('fanPwm') || 0 : 0;
-            var coolFanPwm = stateManager ? stateManager.get('coolFanPwm') || 0 : 0;
 
             chartData.labels.push(now);
             chartData.temp.push(safeNumber(temp, 0));
             chartData.hum.push(safeNumber(hum, 0));
             chartData.nh3.push(safeNumber(nh3, 0));
-            chartData.pwmPeltier.push(peltierPwm);
-            chartData.pwmFan.push(fanPwm);
-            chartData.pwmCool.push(coolFanPwm);
+            chartData.pwmPeltier.push(peltierPwm || 0);
+            chartData.pwmFan.push(fanPwm || 0);
+            chartData.pwmCool.push(coolFanPwm || 0);
 
             if (chartData.labels.length > maxPoints) {
                 chartData.labels.shift();
@@ -1437,17 +1451,9 @@
         // =============================================================
         // 8. TABLE
         // =============================================================
-        function updateTable() {
+        function updateTable(temp, hum, nh3, peltierPwm, fanPwm, coolFanPwm, mode) {
             var tbody = document.getElementById('dataTableBody');
             if (!tbody) return;
-
-            var temp = stateManager ? stateManager.get('temperature') : null;
-            var hum = stateManager ? stateManager.get('humidity') : null;
-            var nh3 = stateManager ? stateManager.get('nh3') : null;
-            var peltierPwm = stateManager ? stateManager.get('peltierPwm') || 0 : 0;
-            var fanPwm = stateManager ? stateManager.get('fanPwm') || 0 : 0;
-            var coolFanPwm = stateManager ? stateManager.get('coolFanPwm') || 0 : 0;
-            var mode = stateManager ? stateManager.get('mode') || 'AUTO' : 'AUTO';
 
             var now = formatTime();
             tableData.unshift({
@@ -1458,7 +1464,7 @@
                 peltier: peltierPwm,
                 fan: fanPwm,
                 cool: coolFanPwm,
-                mode: mode
+                mode: mode || 'AUTO'
             });
             if (tableData.length > 20) tableData.pop();
 
@@ -1471,7 +1477,7 @@
                     '<td>' + formatValue(d.peltier, 0) + '</td>' +
                     '<td>' + formatValue(d.fan, 0) + '</td>' +
                     '<td>' + formatValue(d.cool, 0) + '</td>' +
-                    '<td>' + (d.mode || 'AUTO') + '</td>' +
+                    '<td>' + d.mode + '</td>' +
                     '</tr>';
             }).join('');
         }
@@ -1508,85 +1514,61 @@
         });
 
         // =============================================================
-        // 11. INITIALIZATION
+        // 11. INITIALIZATION (FINAL)
         // =============================================================
         function init() {
-            if (initialized) return;
-            initialized = true;
+            console.log('[Monitoring] init called');
 
-            // Tunggu Core siap
-            if (typeof Core === 'undefined' || !Core.initialized) {
-                setTimeout(init, 500);
+            if (initialized) {
+                console.log('[Monitoring] Already initialized');
                 return;
             }
 
-            stateManager = Core.getStateManager ? Core.getStateManager() : null;
-            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
-            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+            // Tunggu Core dan Sync siap
+            if (typeof window.SyncModule === 'undefined') {
+                console.log('[Monitoring] Menunggu SyncModule siap...');
+                setTimeout(init, 300);
+                return;
+            }
+
+            stateManager = window.StateManager || null;
+            syncModule = window.SyncModule || null;
 
             if (!stateManager) {
-                console.warn('StateManager tidak tersedia, gunakan fallback');
+                console.error('[Monitoring] StateManager tidak ditemukan!');
                 stateManager = {
-                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
-                    addListener: function() {}
+                    get: function() { return null; },
+                    set: function() {},
+                    addListener: function() {},
+                    update: function() {}
                 };
-                window.__fallbackState = {};
             }
 
-            // Inisialisasi Core jika belum
-            if (typeof Core.init === 'function' && !Core.initialized) {
-                Core.init({
-                    config: {
-                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
-                    },
-                    telegram: {
-                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
-                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
-                    }
-                });
-            }
-
-            // Subscribe ke perubahan state via StateManager
-            if (stateManager && typeof stateManager.addListener === 'function') {
-                stateManager.addListener('*', function(key, value, oldValue) {
-                    updateAllUI();
-                });
-            }
-
-            // Gunakan SyncModule untuk sinkronisasi antar user
-            if (syncModule && typeof syncModule.subscribeState === 'function') {
-                syncModule.subscribeState(mqttManager);
-                syncModule.setOnStateChange(function(state) {
-                    updateAllUI();
-                });
-            }
+            console.log('[Monitoring] stateManager:', stateManager);
+            console.log('[Monitoring] syncModule:', syncModule);
 
             // Inisialisasi chart
             initChart();
 
-            // Update UI pertama kali
-            updateAllUI();
-            setTimeout(updateGauges, 200);
-
             // Sembunyikan loading
             var loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
-                setTimeout(function() { loadingScreen.classList.add('hide'); }, 800);
+                setTimeout(function() { loadingScreen.classList.add('hide'); }, 500);
             }
 
-            // Update status periodik
-            setInterval(function() {
-                updateStatusIndicators();
-            }, 10000);
+            // POLLING SETIAP 1 DETIK
+            if (uiUpdateInterval) clearInterval(uiUpdateInterval);
+            uiUpdateInterval = setInterval(function() {
+                updateUI();
+            }, 1000);
 
-            // Periodik update chart & table
-            setInterval(function() {
-                updateChartData();
-                updateTable();
-            }, 2000);
+            // Update pertama
+            setTimeout(updateUI, 100);
 
-            addNotification('Monitoring siap dengan Core System', 'success');
-            console.log('📊 Monitoring menggunakan Core System v3.0');
+            addNotification('Monitoring siap', 'success');
+            console.log('📊 Monitoring FINAL siap dengan polling 1 detik');
+
+            initialized = true;
         }
 
         // =============================================================
@@ -1595,10 +1577,10 @@
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            setTimeout(init, 300);
+            setTimeout(init, 200);
         }
-        
-                // Fallback: hilangkan loading screen setelah 3 detik
+
+        // Fallback: hilangkan loading screen setelah 3 detik
         setTimeout(function() {
             var ls = document.getElementById('loading-screen');
             if (ls) ls.classList.add('hide');
@@ -1606,9 +1588,10 @@
 
         // Ekspos untuk debugging
         window.__stateManager = stateManager;
-        window.__mqttManager = mqttManager;
         window.__syncModule = syncModule;
-        console.log('📊 Monitoring siap, menunggu Core System...');
+        window.__updateUI = updateUI;
+
+        console.log('📊 Monitoring siap, menunggu inisialisasi...');
     </script>
 
 </body>

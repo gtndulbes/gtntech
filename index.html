@@ -20,7 +20,6 @@
     <!-- ============================================================ -->
     <script src="assets/js/core.js"></script>
     <script src="assets/js/sync.js"></script>
-    <!-- mqtt-config.js TIDAK diperlukan karena core.js sudah mengekspos semua -->
 
     <style>
         /* ===== CSS (sama seperti sebelumnya, tidak diubah) ===== */
@@ -1424,7 +1423,7 @@
     <!-- ===== JAVASCRIPT ===== -->
     <script>
         // =============================================================
-        // 1. KONFIGURASI UNTUK CORE
+        // 1. KONFIGURASI
         // =============================================================
         var APP_CONFIG = {
             SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA/exec',
@@ -1433,7 +1432,7 @@
         };
 
         // =============================================================
-        // 2. REFERENSI STATE
+        // 2. REFERENSI
         // =============================================================
         var stateManager = null;
         var mqttManager = null;
@@ -1614,6 +1613,7 @@
             var hum = stateManager ? stateManager.get('humidity') : null;
             var nh3 = stateManager ? stateManager.get('nh3') : null;
 
+            // Debug log
             console.log('[UI] Sensor values from stateManager:', { temp: temp, hum: hum, nh3: nh3 });
 
             var tempValue = safeNumber(temp, 0);
@@ -2059,10 +2059,14 @@
         });
 
         // =============================================================
-        // 13. INITIALIZATION
+        // 13. INISIALISASI (DIPERBAIKI)
         // =============================================================
         function init() {
-            if (initialized) return;
+            console.log('[Dashboard] init called');
+            if (initialized) {
+                console.log('[Dashboard] Already initialized');
+                return;
+            }
             initialized = true;
 
             // Tunggu Core siap
@@ -2072,69 +2076,35 @@
                 return;
             }
 
-            // Ambil referensi dari Core
-            stateManager = Core.getStateManager ? Core.getStateManager() : null;
-            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
-            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
-
-            // Fallback jika masih null
-            if (!stateManager && window.StateManager) stateManager = window.StateManager;
-            if (!mqttManager && window.mqttManager) mqttManager = window.mqttManager;
-            if (!mqttManager && window.MqttManager) mqttManager = window.MqttManager;
-
+            // Ambil StateManager dari global (diekspos oleh core.js)
+            stateManager = window.StateManager;
             if (!stateManager) {
-                console.warn('StateManager tidak tersedia, gunakan fallback');
+                console.error('[Dashboard] StateManager tidak ditemukan!');
+                // Fallback minimal agar tidak crash
                 stateManager = {
-                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
-                    set: function(key, value) {
-                        window.__fallbackState = window.__fallbackState || {};
-                        window.__fallbackState[key] = value;
-                    },
-                    addListener: function() {}
+                    get: function() { return null; },
+                    set: function() {},
+                    addListener: function() {},
+                    update: function() {}
                 };
-                window.__fallbackState = {};
             }
+            mqttManager = window.MqttManager || window.mqttManager || null;
+            syncModule = window.SyncModule || null;
 
-            // Inisialisasi Core jika belum
-            if (typeof Core.init === 'function' && !Core.initialized) {
-                Core.init({
-                    config: {
-                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
-                    },
-                    telegram: {
-                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
-                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
-                    }
-                });
-                // Ambil ulang referensi setelah Core init
-                stateManager = Core.getStateManager ? Core.getStateManager() : stateManager;
-                mqttManager = Core.getMqttManager ? Core.getMqttManager() : mqttManager;
-            }
+            console.log('[Dashboard] stateManager:', stateManager);
+            console.log('[Dashboard] mqttManager:', mqttManager);
 
-            console.log('[Dashboard] stateManager after init:', stateManager);
-            console.log('[Dashboard] mqttManager after init:', mqttManager);
-
-            // Tambahkan listener untuk state change
+            // Daftarkan listener untuk perubahan state
             if (stateManager && typeof stateManager.addListener === 'function') {
-                stateManager.addListener('*', function(key, value, oldValue) {
-                    console.log('[UI] State changed:', key, value);
+                // Hapus listener lama jika ada untuk menghindari duplikasi
+                // stateManager.removeListener('*', updateAllUI); // opsional
+                stateManager.addListener('*', function(key, newValue, oldValue) {
+                    console.log('[UI] State changed:', key, newValue);
                     updateAllUI();
                 });
                 console.log('[Dashboard] Listener terdaftar');
             } else {
-                console.warn('StateManager tidak punya addListener, UI akan diupdate via polling');
-            }
-
-            // Gunakan SyncModule jika tersedia
-            if (syncModule && typeof syncModule.subscribeState === 'function') {
-                if (mqttManager) {
-                    syncModule.subscribeState(mqttManager);
-                    syncModule.setOnStateChange(function(state) {
-                        updateAllUI();
-                    });
-                } else {
-                    console.warn('[Dashboard] mqttManager null, sync module tidak bisa subscribe');
-                }
+                console.warn('[Dashboard] StateManager tidak punya addListener, UI akan diupdate via polling');
             }
 
             // Inisialisasi chart
@@ -2160,12 +2130,12 @@
                 updateChartData();
             }, 2000);
 
-            // Polling fallback untuk update UI (setiap 3 detik) - ini penting!
+            // POLLING FALLBACK (setiap 2 detik) - MEMASTIKAN UI TETAP UPDATE
             if (uiUpdateInterval) clearInterval(uiUpdateInterval);
             uiUpdateInterval = setInterval(function() {
                 console.log('[UI] Polling fallback - update UI');
                 updateAllUI();
-            }, 3000);
+            }, 2000);
 
             addNotification('Dashboard siap dengan Core System', 'success');
             addLog('Sistem dimulai (Core v3.0)');
@@ -2196,7 +2166,6 @@
         window.__syncModule = syncModule;
         window.__showToast = showToast;
         window.__updateAllUI = updateAllUI;
-        window.__stateManager = stateManager;
 
         console.log('🐛 Dashboard siap, menunggu Core System...');
     </script>

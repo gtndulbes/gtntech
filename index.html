@@ -5,1104 +5,224 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>IoT Kandang Ulat Hongkong</title>
     <link rel="icon" href="assets/img/logo.png" type="image/png" alt="smart-iot">
-    <script src="https://cdn.tailwindcss.com">
-    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js">
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js"></script>
 
     <!-- ============================================================ -->
     <!--  CORE SYSTEM – WAJIB dimuat sebelum sync.js dan modul lain   -->
-    <!--  core.js menyediakan StateManager, MqttManager, CONFIG, dll  -->
     <!-- ============================================================ -->
     <script src="assets/js/core.js"></script>
     <script src="assets/js/sync.js"></script>
 
     <style>
         /* ===== CSS (sama seperti sebelumnya, tidak diubah) ===== */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: 'Poppins', sans-serif;
-            background: #0b0e14;
-            color: #e8edf5;
-            overflow-x: hidden;
-        }
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #1a1f2b;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #2a9d8f;
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #21867a;
-        }
-        .glass {
-            background: rgba(255, 255, 255, 0.04);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-        }
-        .glass-light {
-            background: rgba(255, 255, 255, 0.07);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-        }
-        .sidebar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 76px;
-            height: 100vh;
-            background: rgba(11, 14, 20, 0.92);
-            backdrop-filter: blur(20px);
-            border-right: 1px solid rgba(255, 255, 255, 0.06);
-            z-index: 1000;
-            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            padding: 16px 0;
-        }
-        .sidebar:hover {
-            width: 240px;
-        }
-        .sidebar.open {
-            width: 240px;
-        }
-        .sidebar .logo {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 0 18px 24px 18px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            margin-bottom: 16px;
-            white-space: nowrap;
-        }
-        .sidebar .logo i {
-            font-size: 28px;
-            color: #2a9d8f;
-            min-width: 40px;
-            text-align: center;
-        }
-        .sidebar .logo span {
-            font-size: 18px;
-            font-weight: 700;
-            color: #e8edf5;
-            opacity: 0;
-            transition: opacity 0.25s;
-        }
-        .sidebar:hover .logo span,
-        .sidebar.open .logo span {
-            opacity: 1;
-        }
-        .sidebar .nav {
-            flex: 1;
-            overflow-y: auto;
-            padding: 0 8px;
-        }
-        .sidebar .nav a {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            padding: 12px 14px;
-            margin-bottom: 4px;
-            border-radius: 12px;
-            color: #8892a8;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.2s;
-            white-space: nowrap;
-            position: relative;
-        }
-        .sidebar .nav a i {
-            font-size: 20px;
-            min-width: 36px;
-            text-align: center;
-        }
-        .sidebar .nav a span {
-            opacity: 0;
-            transition: opacity 0.25s;
-        }
-        .sidebar:hover .nav a span,
-        .sidebar.open .nav a span {
-            opacity: 1;
-        }
-        .sidebar .nav a:hover {
-            background: rgba(42, 157, 143, 0.15);
-            color: #e8edf5;
-        }
-        .sidebar .nav a.active {
-            background: rgba(42, 157, 143, 0.20);
-            color: #2a9d8f;
-            box-shadow: inset 3px 0 0 #2a9d8f;
-        }
-        .sidebar .nav a .badge {
-            margin-left: auto;
-            background: #2a9d8f;
-            color: #fff;
-            font-size: 10px;
-            padding: 2px 8px;
-            border-radius: 20px;
-            opacity: 0;
-            transition: opacity 0.25s;
-        }
-        .sidebar:hover .nav a .badge,
-        .sidebar.open .nav a .badge {
-            opacity: 1;
-        }
-        .main-content {
-            margin-left: 76px;
-            min-height: 100vh;
-            padding: 20px 24px 40px;
-            transition: margin-left 0.3s;
-        }
-        @media (min-width: 1024px) {
-            .sidebar:hover~.main-content {
-                margin-left: 240px;
-            }
-        }
-        .topbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 12px;
-            padding: 12px 20px;
-            background: rgba(11, 14, 20, 0.7);
-            backdrop-filter: blur(14px);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 16px;
-            margin-bottom: 24px;
-        }
-        .topbar .left {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
-        .topbar .left .menu-toggle {
-            display: none;
-            background: none;
-            border: none;
-            color: #e8edf5;
-            font-size: 22px;
-            cursor: pointer;
-        }
-        .topbar .left h1 {
-            font-size: 18px;
-            font-weight: 600;
-        }
-        .topbar .left h1 small {
-            font-weight: 400;
-            font-size: 13px;
-            color: #8892a8;
-        }
-        .topbar .right {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            flex-wrap: wrap;
-        }
-        .topbar .right .status-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
-            color: #8892a8;
-            background: rgba(255, 255, 255, 0.04);
-            padding: 4px 12px;
-            border-radius: 30px;
-            border: 1px solid rgba(255, 255, 255, 0.04);
-        }
-        .topbar .right .status-item .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            display: inline-block;
-        }
-        .topbar .right .status-item .dot.online {
-            background: #2a9d8f;
-            box-shadow: 0 0 8px rgba(42, 157, 143, 0.5);
-        }
-        .topbar .right .status-item .dot.offline {
-            background: #e74c3c;
-            box-shadow: 0 0 8px rgba(231, 76, 60, 0.4);
-        }
-        .topbar .right .clock {
-            font-size: 15px;
-            font-weight: 500;
-            color: #e8edf5;
-            background: rgba(255, 255, 255, 0.04);
-            padding: 4px 14px;
-            border-radius: 30px;
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            font-variant-numeric: tabular-nums;
-        }
-        .topbar .right .avatar {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #2a9d8f, #1a6b62);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            font-size: 14px;
-            color: #fff;
-            cursor: pointer;
-            border: 2px solid rgba(42, 157, 143, 0.3);
-        }
-        .card {
-            background: rgba(255, 255, 255, 0.04);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 16px;
-            padding: 20px;
-            transition: all 0.25s;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
-        }
-        .card:hover {
-            border-color: rgba(42, 157, 143, 0.2);
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.35);
-            transform: translateY(-2px);
-        }
-        .card .card-title {
-            font-size: 13px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: #8892a8;
-            margin-bottom: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .card .card-title i {
-            font-size: 16px;
-            color: #2a9d8f;
-        }
-        .chart-shell {
-            position: relative;
-            width: 100%;
-            height: 260px;
-            max-height: 260px;
-            overflow: hidden;
-        }
-        .chart-shell canvas {
-            display: block;
-            width: 100% !important;
-            height: 100% !important;
-        }
-        .sensor-value {
-            font-size: 36px;
-            font-weight: 700;
-            line-height: 1.1;
-        }
-        .sensor-value .unit {
-            font-size: 18px;
-            font-weight: 400;
-            color: #8892a8;
-            margin-left: 4px;
-        }
-        .sensor-value .status-badge {
-            font-size: 12px;
-            font-weight: 500;
-            padding: 2px 12px;
-            border-radius: 30px;
-            margin-left: 10px;
-        }
-        .status-badge.normal {
-            background: rgba(42, 157, 143, 0.2);
-            color: #2a9d8f;
-        }
-        .status-badge.warning {
-            background: rgba(241, 196, 15, 0.2);
-            color: #f1c40f;
-        }
-        .status-badge.danger {
-            background: rgba(231, 76, 60, 0.2);
-            color: #e74c3c;
-        }
-        .progress-track {
-            width: 100%;
-            height: 6px;
-            background: rgba(255, 255, 255, 0.06);
-            border-radius: 10px;
-            overflow: hidden;
-            margin-top: 8px;
-        }
-        .progress-track .progress-fill {
-            height: 100%;
-            border-radius: 10px;
-            transition: width 0.4s ease;
-        }
-        .gauge-wrap {
-            position: relative;
-            width: 140px;
-            height: 140px;
-            margin: 0 auto;
-        }
-        .gauge-wrap canvas {
-            width: 100% !important;
-            height: 100% !important;
-        }
-        .gauge-center {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-        }
-        .gauge-center .val {
-            font-size: 28px;
-            font-weight: 700;
-            line-height: 1;
-        }
-        .gauge-center .lbl {
-            font-size: 11px;
-            color: #8892a8;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .actuator-card {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 14px 16px;
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            transition: all 0.25s;
-        }
-        .actuator-card .icon {
-            width: 44px;
-            height: 44px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-            background: rgba(42, 157, 143, 0.12);
-            color: #2a9d8f;
-            flex-shrink: 0;
-        }
-        .actuator-card .info {
-            flex: 1;
-        }
-        .actuator-card .info .name {
-            font-size: 13px;
-            font-weight: 500;
-        }
-        .actuator-card .info .detail {
-            font-size: 12px;
-            color: #8892a8;
-        }
-        .actuator-card .status-led {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            flex-shrink: 0;
-            transition: all 0.3s;
-        }
-        .actuator-card .status-led.on {
-            background: #2a9d8f;
-            box-shadow: 0 0 16px rgba(42, 157, 143, 0.5);
-        }
-        .actuator-card .status-led.off {
-            background: #555;
-        }
-        .led {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        .led .dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            display: inline-block;
-        }
-        .led .dot.green {
-            background: #2a9d8f;
-            box-shadow: 0 0 12px rgba(42, 157, 143, 0.5);
-        }
-        .led .dot.yellow {
-            background: #f1c40f;
-            box-shadow: 0 0 12px rgba(241, 196, 15, 0.4);
-        }
-        .led .dot.red {
-            background: #e74c3c;
-            box-shadow: 0 0 12px rgba(231, 76, 60, 0.4);
-        }
-        .alarm-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 12px;
-            border-radius: 8px;
-            font-size: 13px;
-            background: rgba(255, 255, 255, 0.02);
-            border-left: 3px solid transparent;
-        }
-        .alarm-item.active {
-            border-left-color: #e74c3c;
-            background: rgba(231, 76, 60, 0.06);
-        }
-        .alarm-item .icon {
-            width: 28px;
-            text-align: center;
-            color: #8892a8;
-        }
-        .alarm-item .icon.danger {
-            color: #e74c3c;
-        }
-        .notif-item {
-            padding: 10px 14px;
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.02);
-            border-left: 3px solid #2a9d8f;
-            margin-bottom: 6px;
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .notif-item .time {
-            font-size: 11px;
-            color: #8892a8;
-            margin-left: auto;
-            white-space: nowrap;
-        }
-        .health-ring {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            font-weight: 700;
-            position: relative;
-            margin: 0 auto;
-        }
-        @media (max-width: 1024px) {
-            .sidebar {
-                width: 0;
-                padding: 0;
-                overflow: hidden;
-                border-right: none;
-            }
-            .sidebar.open {
-                width: 240px;
-                padding: 16px 0;
-            }
-            .sidebar .logo span,
-            .sidebar .nav a span,
-            .sidebar .nav a .badge {
-                opacity: 1;
-            }
-            .main-content {
-                margin-left: 0;
-            }
-            .topbar .left .menu-toggle {
-                display: block;
-            }
-            .topbar .left h1 small {
-                display: none;
-            }
-        }
-        @media (max-width: 768px) {
-            .main-content {
-                padding: 12px 12px 32px;
-            }
-            .topbar {
-                padding: 10px 14px;
-            }
-            .topbar .right .status-item span {
-                display: none;
-            }
-            .topbar .right .clock {
-                font-size: 13px;
-                padding: 2px 10px;
-            }
-            .sensor-value {
-                font-size: 28px;
-            }
-            .gauge-wrap {
-                width: 100px;
-                height: 100px;
-            }
-            .gauge-center .val {
-                font-size: 20px;
-            }
-        }
-        @media (max-width: 480px) {
-            .topbar .left h1 {
-                font-size: 15px;
-            }
-            .topbar .right .status-item {
-                padding: 2px 8px;
-                font-size: 10px;
-            }
-            .card {
-                padding: 14px;
-            }
-        }
-        @keyframes pulse-green {
-            0%,
-            100% {
-                box-shadow: 0 0 12px rgba(42, 157, 143, 0.3);
-            }
-            50% {
-                box-shadow: 0 0 24px rgba(42, 157, 143, 0.7);
-            }
-        }
-        .pulse-green {
-            animation: pulse-green 2s ease-in-out infinite;
-        }
-        @keyframes spin-slow {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-        .spin-slow {
-            animation: spin-slow 6s linear infinite;
-        }
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        .fade-in-up {
-            animation: fadeInUp 0.5s ease forwards;
-        }
-        .toggle {
-            width: 44px;
-            height: 24px;
-            background: #2a2f3a;
-            border-radius: 30px;
-            cursor: pointer;
-            position: relative;
-            transition: 0.3s;
-            flex-shrink: 0;
-            border: none;
-        }
-        .toggle::after {
-            content: '';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 20px;
-            height: 20px;
-            background: #8892a8;
-            border-radius: 50%;
-            transition: 0.3s;
-        }
-        .toggle.on {
-            background: rgba(42, 157, 143, 0.4);
-        }
-        .toggle.on::after {
-            left: 22px;
-            background: #2a9d8f;
-            box-shadow: 0 0 12px rgba(42, 157, 143, 0.4);
-        }
-        input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 100%;
-            height: 4px;
-            border-radius: 10px;
-            background: #2a2f3a;
-            outline: none;
-            transition: 0.2s;
-        }
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: #2a9d8f;
-            cursor: pointer;
-            box-shadow: 0 0 12px rgba(42, 157, 143, 0.3);
-        }
-        input[type="range"]::-moz-range-thumb {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: #2a9d8f;
-            cursor: pointer;
-            border: none;
-        }
-        #loading-screen {
-            position: fixed;
-            inset: 0;
-            z-index: 9999;
-            background: #0b0e14;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            transition: opacity 0.8s, visibility 0.8s;
-        }
-        #loading-screen.hide {
-            opacity: 0;
-            visibility: hidden;
-        }
-        #loading-screen .spinner {
-            width: 56px;
-            height: 56px;
-            border-radius: 50%;
-            border: 4px solid rgba(42, 157, 143, 0.15);
-            border-top-color: #2a9d8f;
-            animation: spin-slow 1s linear infinite;
-        }
-        #loading-screen p {
-            margin-top: 20px;
-            color: #8892a8;
-            font-weight: 500;
-            letter-spacing: 1px;
-        }
-        .toast-container {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            z-index: 9998;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            max-width: 380px;
-            width: 100%;
-        }
-        .toast {
-            padding: 14px 18px;
-            border-radius: 12px;
-            background: rgba(20, 25, 35, 0.95);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            animation: slideInRight 0.4s ease;
-            font-size: 13px;
-        }
-        .toast .icon {
-            font-size: 18px;
-        }
-        .toast .icon.success {
-            color: #2a9d8f;
-        }
-        .toast .icon.error {
-            color: #e74c3c;
-        }
-        .toast .icon.warning {
-            color: #f1c40f;
-        }
-        .toast .icon.info {
-            color: #3498db;
-        }
-        @keyframes slideInRight {
-            from {
-                opacity: 0;
-                transform: translateX(60px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-        .toast.hide {
-            opacity: 0;
-            transform: translateX(60px);
-            transition: 0.3s;
-        }
-        .breadcrumb {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 13px;
-            color: #8892a8;
-            flex-wrap: wrap;
-        }
-        .breadcrumb a {
-            color: #8892a8;
-            text-decoration: none;
-            transition: 0.2s;
-        }
-        .breadcrumb a:hover {
-            color: #2a9d8f;
-        }
-        .breadcrumb .sep {
-            color: #3a4050;
-        }
-        .breadcrumb .current {
-            color: #e8edf5;
-        }
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            z-index: 9997;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(4px);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-        .modal-overlay.show {
-            display: flex;
-        }
-        .modal-box {
-            background: #161c26;
-            border-radius: 20px;
-            padding: 32px;
-            max-width: 480px;
-            width: 100%;
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
-            animation: fadeInUp 0.3s ease;
-        }
-        .modal-box h3 {
-            font-size: 20px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        .modal-box p {
-            color: #8892a8;
-            font-size: 14px;
-            margin-bottom: 20px;
-        }
-        .modal-box .actions {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-        }
-        .modal-box .actions button {
-            padding: 10px 24px;
-            border-radius: 10px;
-            border: none;
-            font-weight: 600;
-            font-size: 13px;
-            cursor: pointer;
-            transition: 0.2s;
-        }
-        .modal-box .actions .btn-secondary {
-            background: rgba(255, 255, 255, 0.06);
-            color: #e8edf5;
-        }
-        .modal-box .actions .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.12);
-        }
-        .modal-box .actions .btn-primary {
-            background: #2a9d8f;
-            color: #fff;
-        }
-        .modal-box .actions .btn-primary:hover {
-            background: #21867a;
-        }
-        .modal-box .actions .btn-danger {
-            background: #e74c3c;
-            color: #fff;
-        }
-        .modal-box .actions .btn-danger:hover {
-            background: #c0392b;
-        }
-        .text-neon {
-            color: #2a9d8f;
-        }
-        .border-neon {
-            border-color: rgba(42, 157, 143, 0.3);
-        }
-        .bg-neon-dark {
-            background: rgba(42, 157, 143, 0.08);
-        }
-        .gap-2 {
-            gap: 8px;
-        }
-        .gap-3 {
-            gap: 12px;
-        }
-        .gap-4 {
-            gap: 16px;
-        }
-        .gap-6 {
-            gap: 24px;
-        }
-        .flex-wrap {
-            flex-wrap: wrap;
-        }
-        .items-center {
-            align-items: center;
-        }
-        .justify-between {
-            justify-content: space-between;
-        }
-        .text-center {
-            text-align: center;
-        }
-        .w-full {
-            width: 100%;
-        }
-        .grid-cols-1 {
-            grid-template-columns: 1fr;
-        }
-        .grid-cols-2 {
-            grid-template-columns: 1fr 1fr;
-        }
-        .grid-cols-3 {
-            grid-template-columns: 1fr 1fr 1fr;
-        }
-        .grid-cols-4 {
-            grid-template-columns: 1fr 1fr 1fr 1fr;
-        }
-        .grid-cols-5 {
-            grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
-        }
-        .col-span-2 {
-            grid-column: span 2;
-        }
-        .col-span-3 {
-            grid-column: span 3;
-        }
-        .col-span-4 {
-            grid-column: span 4;
-        }
-        .mt-2 {
-            margin-top: 8px;
-        }
-        .mt-3 {
-            margin-top: 12px;
-        }
-        .mt-4 {
-            margin-top: 16px;
-        }
-        .mt-6 {
-            margin-top: 24px;
-        }
-        .mb-2 {
-            margin-bottom: 8px;
-        }
-        .mb-3 {
-            margin-bottom: 12px;
-        }
-        .mb-4 {
-            margin-bottom: 16px;
-        }
-        .mb-6 {
-            margin-bottom: 24px;
-        }
-        .p-0 {
-            padding: 0;
-        }
-        .p-2 {
-            padding: 8px;
-        }
-        .p-3 {
-            padding: 12px;
-        }
-        .p-4 {
-            padding: 16px;
-        }
-        .p-6 {
-            padding: 24px;
-        }
-        .text-xs {
-            font-size: 11px;
-        }
-        .text-sm {
-            font-size: 13px;
-        }
-        .text-base {
-            font-size: 15px;
-        }
-        .text-lg {
-            font-size: 17px;
-        }
-        .text-xl {
-            font-size: 20px;
-        }
-        .text-2xl {
-            font-size: 24px;
-        }
-        .text-3xl {
-            font-size: 30px;
-        }
-        .font-medium {
-            font-weight: 500;
-        }
-        .font-semibold {
-            font-weight: 600;
-        }
-        .font-bold {
-            font-weight: 700;
-        }
-        .opacity-60 {
-            opacity: 0.6;
-        }
-        .opacity-80 {
-            opacity: 0.8;
-        }
-        .relative {
-            position: relative;
-        }
-        .hidden {
-            display: none !important;
-        }
-        .block {
-            display: block;
-        }
-        .flex {
-            display: flex;
-        }
-        .grid {
-            display: grid;
-        }
-        @media (min-width: 640px) {
-            .sm\:grid-cols-2 {
-                grid-template-columns: 1fr 1fr;
-            }
-            .sm\:grid-cols-3 {
-                grid-template-columns: 1fr 1fr 1fr;
-            }
-            .sm\:flex-row {
-                flex-direction: row;
-            }
-        }
-        @media (min-width: 768px) {
-            .md\:grid-cols-2 {
-                grid-template-columns: 1fr 1fr;
-            }
-            .md\:grid-cols-3 {
-                grid-template-columns: 1fr 1fr 1fr;
-            }
-            .md\:grid-cols-4 {
-                grid-template-columns: 1fr 1fr 1fr 1fr;
-            }
-            .md\:col-span-2 {
-                grid-column: span 2;
-            }
-        }
-        @media (min-width: 1024px) {
-            .lg\:grid-cols-3 {
-                grid-template-columns: 1fr 1fr 1fr;
-            }
-            .lg\:grid-cols-4 {
-                grid-template-columns: 1fr 1fr 1fr 1fr;
-            }
-            .lg\:grid-cols-5 {
-                grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
-            }
-            .lg\:col-span-2 {
-                grid-column: span 2;
-            }
-            .lg\:col-span-3 {
-                grid-column: span 3;
-            }
-        }
-        .transition-all {
-            transition: all 0.25s ease;
-        }
-        .cursor-pointer {
-            cursor: pointer;
-        }
-        .rounded-full {
-            border-radius: 9999px;
-        }
-        .rounded-xl {
-            border-radius: 12px;
-        }
-        .rounded-2xl {
-            border-radius: 16px;
-        }
-        .overflow-hidden {
-            overflow: hidden;
-        }
-        .border {
-            border: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        .border-t {
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
-        }
-        .bg-white\/5 {
-            background: rgba(255, 255, 255, 0.05);
-        }
-        .bg-white\/10 {
-            background: rgba(255, 255, 255, 0.10);
-        }
-        .text-gray-400 {
-            color: #8892a8;
-        }
-        .text-gray-500 {
-            color: #6a7288;
-        }
-        .text-white {
-            color: #e8edf5;
-        }
-        .text-green-400 {
-            color: #2a9d8f;
-        }
-        .text-yellow-400 {
-            color: #f1c40f;
-        }
-        .text-red-400 {
-            color: #e74c3c;
-        }
-        .text-blue-400 {
-            color: #3498db;
-        }
-        .bg-green-500\/20 {
-            background: rgba(42, 157, 143, 0.2);
-        }
-        .bg-yellow-500\/20 {
-            background: rgba(241, 196, 15, 0.2);
-        }
-        .bg-red-500\/20 {
-            background: rgba(231, 76, 60, 0.2);
-        }
-        .bg-blue-500\/20 {
-            background: rgba(52, 152, 219, 0.2);
-        }
-        .border-green-500\/20 {
-            border-color: rgba(42, 157, 143, 0.2);
-        }
-        .border-yellow-500\/20 {
-            border-color: rgba(241, 196, 15, 0.2);
-        }
-        .border-red-500\/20 {
-            border-color: rgba(231, 76, 60, 0.2);
-        }
-        .border-blue-500\/20 {
-            border-color: rgba(52, 152, 219, 0.2);
-        }
-        .hover\:bg-white\/10:hover {
-            background: rgba(255, 255, 255, 0.10);
-        }
-        .hover\:border-green-500\/30:hover {
-            border-color: rgba(42, 157, 143, 0.3);
-        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Poppins',sans-serif; background:#0b0e14; color:#e8edf5; overflow-x:hidden; }
+        ::-webkit-scrollbar { width:6px; height:6px; }
+        ::-webkit-scrollbar-track { background:#1a1f2b; }
+        ::-webkit-scrollbar-thumb { background:#2a9d8f; border-radius:10px; }
+        ::-webkit-scrollbar-thumb:hover { background:#21867a; }
+        .glass { background:rgba(255,255,255,0.04); backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.06); box-shadow:0 8px 32px rgba(0,0,0,0.45); }
+        .glass-light { background:rgba(255,255,255,0.07); backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,0.08); }
+        .sidebar { position:fixed; top:0; left:0; width:76px; height:100vh; background:rgba(11,14,20,0.92); backdrop-filter:blur(20px); border-right:1px solid rgba(255,255,255,0.06); z-index:1000; transition:width 0.3s cubic-bezier(0.4,0,0.2,1); overflow:hidden; display:flex; flex-direction:column; padding:16px 0; }
+        .sidebar:hover { width:240px; }
+        .sidebar.open { width:240px; }
+        .sidebar .logo { display:flex; align-items:center; gap:12px; padding:0 18px 24px 18px; border-bottom:1px solid rgba(255,255,255,0.05); margin-bottom:16px; white-space:nowrap; }
+        .sidebar .logo i { font-size:28px; color:#2a9d8f; min-width:40px; text-align:center; }
+        .sidebar .logo span { font-size:18px; font-weight:700; color:#e8edf5; opacity:0; transition:opacity 0.25s; }
+        .sidebar:hover .logo span, .sidebar.open .logo span { opacity:1; }
+        .sidebar .nav { flex:1; overflow-y:auto; padding:0 8px; }
+        .sidebar .nav a { display:flex; align-items:center; gap:14px; padding:12px 14px; margin-bottom:4px; border-radius:12px; color:#8892a8; text-decoration:none; font-size:14px; font-weight:500; transition:all 0.2s; white-space:nowrap; position:relative; }
+        .sidebar .nav a i { font-size:20px; min-width:36px; text-align:center; }
+        .sidebar .nav a span { opacity:0; transition:opacity 0.25s; }
+        .sidebar:hover .nav a span, .sidebar.open .nav a span { opacity:1; }
+        .sidebar .nav a:hover { background:rgba(42,157,143,0.15); color:#e8edf5; }
+        .sidebar .nav a.active { background:rgba(42,157,143,0.20); color:#2a9d8f; box-shadow:inset 3px 0 0 #2a9d8f; }
+        .sidebar .nav a .badge { margin-left:auto; background:#2a9d8f; color:#fff; font-size:10px; padding:2px 8px; border-radius:20px; opacity:0; transition:opacity 0.25s; }
+        .sidebar:hover .nav a .badge, .sidebar.open .nav a .badge { opacity:1; }
+        .main-content { margin-left:76px; min-height:100vh; padding:20px 24px 40px; transition:margin-left 0.3s; }
+        @media (min-width:1024px) { .sidebar:hover~.main-content { margin-left:240px; } }
+        .topbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:12px 20px; background:rgba(11,14,20,0.7); backdrop-filter:blur(14px); border:1px solid rgba(255,255,255,0.05); border-radius:16px; margin-bottom:24px; }
+        .topbar .left { display:flex; align-items:center; gap:14px; }
+        .topbar .left .menu-toggle { display:none; background:none; border:none; color:#e8edf5; font-size:22px; cursor:pointer; }
+        .topbar .left h1 { font-size:18px; font-weight:600; }
+        .topbar .left h1 small { font-weight:400; font-size:13px; color:#8892a8; }
+        .topbar .right { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+        .topbar .right .status-item { display:flex; align-items:center; gap:6px; font-size:12px; color:#8892a8; background:rgba(255,255,255,0.04); padding:4px 12px; border-radius:30px; border:1px solid rgba(255,255,255,0.04); }
+        .topbar .right .status-item .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+        .topbar .right .status-item .dot.online { background:#2a9d8f; box-shadow:0 0 8px rgba(42,157,143,0.5); }
+        .topbar .right .status-item .dot.offline { background:#e74c3c; box-shadow:0 0 8px rgba(231,76,60,0.4); }
+        .topbar .right .clock { font-size:15px; font-weight:500; color:#e8edf5; background:rgba(255,255,255,0.04); padding:4px 14px; border-radius:30px; border:1px solid rgba(255,255,255,0.04); font-variant-numeric:tabular-nums; }
+        .topbar .right .avatar { width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#2a9d8f,#1a6b62); display:flex; align-items:center; justify-content:center; font-weight:600; font-size:14px; color:#fff; cursor:pointer; border:2px solid rgba(42,157,143,0.3); }
+        .card { background:rgba(255,255,255,0.04); backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,0.06); border-radius:16px; padding:20px; transition:all 0.25s; box-shadow:0 4px 24px rgba(0,0,0,0.2); }
+        .card:hover { border-color:rgba(42,157,143,0.2); box-shadow:0 8px 40px rgba(0,0,0,0.35); transform:translateY(-2px); }
+        .card .card-title { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:#8892a8; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; }
+        .card .card-title i { font-size:16px; color:#2a9d8f; }
+        .chart-shell { position:relative; width:100%; height:260px; max-height:260px; overflow:hidden; }
+        .chart-shell canvas { display:block; width:100% !important; height:100% !important; }
+        .sensor-value { font-size:36px; font-weight:700; line-height:1.1; }
+        .sensor-value .unit { font-size:18px; font-weight:400; color:#8892a8; margin-left:4px; }
+        .sensor-value .status-badge { font-size:12px; font-weight:500; padding:2px 12px; border-radius:30px; margin-left:10px; }
+        .status-badge.normal { background:rgba(42,157,143,0.2); color:#2a9d8f; }
+        .status-badge.warning { background:rgba(241,196,15,0.2); color:#f1c40f; }
+        .status-badge.danger { background:rgba(231,76,60,0.2); color:#e74c3c; }
+        .progress-track { width:100%; height:6px; background:rgba(255,255,255,0.06); border-radius:10px; overflow:hidden; margin-top:8px; }
+        .progress-track .progress-fill { height:100%; border-radius:10px; transition:width 0.4s ease; }
+        .gauge-wrap { position:relative; width:140px; height:140px; margin:0 auto; }
+        .gauge-wrap canvas { width:100% !important; height:100% !important; }
+        .gauge-center { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; }
+        .gauge-center .val { font-size:28px; font-weight:700; line-height:1; }
+        .gauge-center .lbl { font-size:11px; color:#8892a8; text-transform:uppercase; letter-spacing:0.5px; }
+        .actuator-card { display:flex; align-items:center; gap:16px; padding:14px 16px; background:rgba(255,255,255,0.03); border-radius:12px; border:1px solid rgba(255,255,255,0.04); transition:all 0.25s; }
+        .actuator-card .icon { width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:22px; background:rgba(42,157,143,0.12); color:#2a9d8f; flex-shrink:0; }
+        .actuator-card .info { flex:1; }
+        .actuator-card .info .name { font-size:13px; font-weight:500; }
+        .actuator-card .info .detail { font-size:12px; color:#8892a8; }
+        .actuator-card .status-led { width:12px; height:12px; border-radius:50%; flex-shrink:0; transition:all 0.3s; }
+        .actuator-card .status-led.on { background:#2a9d8f; box-shadow:0 0 16px rgba(42,157,143,0.5); }
+        .actuator-card .status-led.off { background:#555; }
+        .led { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:500; }
+        .led .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+        .led .dot.green { background:#2a9d8f; box-shadow:0 0 12px rgba(42,157,143,0.5); }
+        .led .dot.yellow { background:#f1c40f; box-shadow:0 0 12px rgba(241,196,15,0.4); }
+        .led .dot.red { background:#e74c3c; box-shadow:0 0 12px rgba(231,76,60,0.4); }
+        .alarm-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; font-size:13px; background:rgba(255,255,255,0.02); border-left:3px solid transparent; }
+        .alarm-item.active { border-left-color:#e74c3c; background:rgba(231,76,60,0.06); }
+        .alarm-item .icon { width:28px; text-align:center; color:#8892a8; }
+        .alarm-item .icon.danger { color:#e74c3c; }
+        .notif-item { padding:10px 14px; border-radius:10px; background:rgba(255,255,255,0.02); border-left:3px solid #2a9d8f; margin-bottom:6px; font-size:13px; display:flex; align-items:center; gap:10px; }
+        .notif-item .time { font-size:11px; color:#8892a8; margin-left:auto; white-space:nowrap; }
+        .health-ring { width:80px; height:80px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:700; position:relative; margin:0 auto; }
+        @media (max-width:1024px) { .sidebar { width:0; padding:0; overflow:hidden; border-right:none; } .sidebar.open { width:240px; padding:16px 0; } .sidebar .logo span, .sidebar .nav a span, .sidebar .nav a .badge { opacity:1; } .main-content { margin-left:0; } .topbar .left .menu-toggle { display:block; } .topbar .left h1 small { display:none; } }
+        @media (max-width:768px) { .main-content { padding:12px 12px 32px; } .topbar { padding:10px 14px; } .topbar .right .status-item span { display:none; } .topbar .right .clock { font-size:13px; padding:2px 10px; } .sensor-value { font-size:28px; } .gauge-wrap { width:100px; height:100px; } .gauge-center .val { font-size:20px; } }
+        @media (max-width:480px) { .topbar .left h1 { font-size:15px; } .topbar .right .status-item { padding:2px 8px; font-size:10px; } .card { padding:14px; } }
+        @keyframes pulse-green { 0%,100% { box-shadow:0 0 12px rgba(42,157,143,0.3); } 50% { box-shadow:0 0 24px rgba(42,157,143,0.7); } }
+        .pulse-green { animation:pulse-green 2s ease-in-out infinite; }
+        @keyframes spin-slow { to { transform:rotate(360deg); } }
+        .spin-slow { animation:spin-slow 6s linear infinite; }
+        @keyframes fadeInUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+        .fade-in-up { animation:fadeInUp 0.5s ease forwards; }
+        .toggle { width:44px; height:24px; background:#2a2f3a; border-radius:30px; cursor:pointer; position:relative; transition:0.3s; flex-shrink:0; border:none; }
+        .toggle::after { content:''; position:absolute; top:2px; left:2px; width:20px; height:20px; background:#8892a8; border-radius:50%; transition:0.3s; }
+        .toggle.on { background:rgba(42,157,143,0.4); }
+        .toggle.on::after { left:22px; background:#2a9d8f; box-shadow:0 0 12px rgba(42,157,143,0.4); }
+        input[type="range"] { -webkit-appearance:none; appearance:none; width:100%; height:4px; border-radius:10px; background:#2a2f3a; outline:none; transition:0.2s; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:16px; height:16px; border-radius:50%; background:#2a9d8f; cursor:pointer; box-shadow:0 0 12px rgba(42,157,143,0.3); }
+        input[type="range"]::-moz-range-thumb { width:16px; height:16px; border-radius:50%; background:#2a9d8f; cursor:pointer; border:none; }
+        #loading-screen { position:fixed; inset:0; z-index:9999; background:#0b0e14; display:flex; flex-direction:column; align-items:center; justify-content:center; transition:opacity 0.8s, visibility 0.8s; }
+        #loading-screen.hide { opacity:0; visibility:hidden; }
+        #loading-screen .spinner { width:56px; height:56px; border-radius:50%; border:4px solid rgba(42,157,143,0.15); border-top-color:#2a9d8f; animation:spin-slow 1s linear infinite; }
+        #loading-screen p { margin-top:20px; color:#8892a8; font-weight:500; letter-spacing:1px; }
+        .toast-container { position:fixed; bottom:24px; right:24px; z-index:9998; display:flex; flex-direction:column; gap:8px; max-width:380px; width:100%; }
+        .toast { padding:14px 18px; border-radius:12px; background:rgba(20,25,35,0.95); backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,0.06); box-shadow:0 8px 32px rgba(0,0,0,0.5); display:flex; align-items:center; gap:12px; animation:slideInRight 0.4s ease; font-size:13px; }
+        .toast .icon { font-size:18px; }
+        .toast .icon.success { color:#2a9d8f; }
+        .toast .icon.error { color:#e74c3c; }
+        .toast .icon.warning { color:#f1c40f; }
+        .toast .icon.info { color:#3498db; }
+        @keyframes slideInRight { from { opacity:0; transform:translateX(60px); } to { opacity:1; transform:translateX(0); } }
+        .toast.hide { opacity:0; transform:translateX(60px); transition:0.3s; }
+        .breadcrumb { display:flex; align-items:center; gap:6px; font-size:13px; color:#8892a8; flex-wrap:wrap; }
+        .breadcrumb a { color:#8892a8; text-decoration:none; transition:0.2s; }
+        .breadcrumb a:hover { color:#2a9d8f; }
+        .breadcrumb .sep { color:#3a4050; }
+        .breadcrumb .current { color:#e8edf5; }
+        .modal-overlay { position:fixed; inset:0; z-index:9997; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; padding:20px; }
+        .modal-overlay.show { display:flex; }
+        .modal-box { background:#161c26; border-radius:20px; padding:32px; max-width:480px; width:100%; border:1px solid rgba(255,255,255,0.06); box-shadow:0 24px 64px rgba(0,0,0,0.6); animation:fadeInUp 0.3s ease; }
+        .modal-box h3 { font-size:20px; font-weight:600; margin-bottom:8px; }
+        .modal-box p { color:#8892a8; font-size:14px; margin-bottom:20px; }
+        .modal-box .actions { display:flex; gap:10px; justify-content:flex-end; }
+        .modal-box .actions button { padding:10px 24px; border-radius:10px; border:none; font-weight:600; font-size:13px; cursor:pointer; transition:0.2s; }
+        .modal-box .actions .btn-secondary { background:rgba(255,255,255,0.06); color:#e8edf5; }
+        .modal-box .actions .btn-secondary:hover { background:rgba(255,255,255,0.12); }
+        .modal-box .actions .btn-primary { background:#2a9d8f; color:#fff; }
+        .modal-box .actions .btn-primary:hover { background:#21867a; }
+        .modal-box .actions .btn-danger { background:#e74c3c; color:#fff; }
+        .modal-box .actions .btn-danger:hover { background:#c0392b; }
+        .text-neon { color:#2a9d8f; }
+        .border-neon { border-color:rgba(42,157,143,0.3); }
+        .bg-neon-dark { background:rgba(42,157,143,0.08); }
+        .gap-2 { gap:8px; }
+        .gap-3 { gap:12px; }
+        .gap-4 { gap:16px; }
+        .gap-6 { gap:24px; }
+        .flex-wrap { flex-wrap:wrap; }
+        .items-center { align-items:center; }
+        .justify-between { justify-content:space-between; }
+        .text-center { text-align:center; }
+        .w-full { width:100%; }
+        .grid-cols-1 { grid-template-columns:1fr; }
+        .grid-cols-2 { grid-template-columns:1fr 1fr; }
+        .grid-cols-3 { grid-template-columns:1fr 1fr 1fr; }
+        .grid-cols-4 { grid-template-columns:1fr 1fr 1fr 1fr; }
+        .grid-cols-5 { grid-template-columns:1fr 1fr 1fr 1fr 1fr; }
+        .col-span-2 { grid-column:span 2; }
+        .col-span-3 { grid-column:span 3; }
+        .col-span-4 { grid-column:span 4; }
+        .mt-2 { margin-top:8px; }
+        .mt-3 { margin-top:12px; }
+        .mt-4 { margin-top:16px; }
+        .mt-6 { margin-top:24px; }
+        .mb-2 { margin-bottom:8px; }
+        .mb-3 { margin-bottom:12px; }
+        .mb-4 { margin-bottom:16px; }
+        .mb-6 { margin-bottom:24px; }
+        .p-0 { padding:0; }
+        .p-2 { padding:8px; }
+        .p-3 { padding:12px; }
+        .p-4 { padding:16px; }
+        .p-6 { padding:24px; }
+        .text-xs { font-size:11px; }
+        .text-sm { font-size:13px; }
+        .text-base { font-size:15px; }
+        .text-lg { font-size:17px; }
+        .text-xl { font-size:20px; }
+        .text-2xl { font-size:24px; }
+        .text-3xl { font-size:30px; }
+        .font-medium { font-weight:500; }
+        .font-semibold { font-weight:600; }
+        .font-bold { font-weight:700; }
+        .opacity-60 { opacity:0.6; }
+        .opacity-80 { opacity:0.8; }
+        .relative { position:relative; }
+        .hidden { display:none !important; }
+        .block { display:block; }
+        .flex { display:flex; }
+        .grid { display:grid; }
+        @media (min-width:640px) { .sm\:grid-cols-2 { grid-template-columns:1fr 1fr; } .sm\:grid-cols-3 { grid-template-columns:1fr 1fr 1fr; } .sm\:flex-row { flex-direction:row; } }
+        @media (min-width:768px) { .md\:grid-cols-2 { grid-template-columns:1fr 1fr; } .md\:grid-cols-3 { grid-template-columns:1fr 1fr 1fr; } .md\:grid-cols-4 { grid-template-columns:1fr 1fr 1fr 1fr; } .md\:col-span-2 { grid-column:span 2; } }
+        @media (min-width:1024px) { .lg\:grid-cols-3 { grid-template-columns:1fr 1fr 1fr; } .lg\:grid-cols-4 { grid-template-columns:1fr 1fr 1fr 1fr; } .lg\:grid-cols-5 { grid-template-columns:1fr 1fr 1fr 1fr 1fr; } .lg\:col-span-2 { grid-column:span 2; } .lg\:col-span-3 { grid-column:span 3; } }
+        .transition-all { transition:all 0.25s ease; }
+        .cursor-pointer { cursor:pointer; }
+        .rounded-full { border-radius:9999px; }
+        .rounded-xl { border-radius:12px; }
+        .rounded-2xl { border-radius:16px; }
+        .overflow-hidden { overflow:hidden; }
+        .border { border:1px solid rgba(255,255,255,0.06); }
+        .border-t { border-top:1px solid rgba(255,255,255,0.06); }
+        .bg-white\/5 { background:rgba(255,255,255,0.05); }
+        .bg-white\/10 { background:rgba(255,255,255,0.10); }
+        .text-gray-400 { color:#8892a8; }
+        .text-gray-500 { color:#6a7288; }
+        .text-white { color:#e8edf5; }
+        .text-green-400 { color:#2a9d8f; }
+        .text-yellow-400 { color:#f1c40f; }
+        .text-red-400 { color:#e74c3c; }
+        .text-blue-400 { color:#3498db; }
+        .bg-green-500\/20 { background:rgba(42,157,143,0.2); }
+        .bg-yellow-500\/20 { background:rgba(241,196,15,0.2); }
+        .bg-red-500\/20 { background:rgba(231,76,60,0.2); }
+        .bg-blue-500\/20 { background:rgba(52,152,219,0.2); }
+        .border-green-500\/20 { border-color:rgba(42,157,143,0.2); }
+        .border-yellow-500\/20 { border-color:rgba(241,196,15,0.2); }
+        .border-red-500\/20 { border-color:rgba(231,76,60,0.2); }
+        .border-blue-500\/20 { border-color:rgba(52,152,219,0.2); }
+        .hover\:bg-white\/10:hover { background:rgba(255,255,255,0.10); }
+        .hover\:border-green-500\/30:hover { border-color:rgba(42,157,143,0.3); }
     </style>
 </head>
 <body>
@@ -1420,7 +540,7 @@
     </div>
 
     <!-- ============================================================ -->
-    <!-- ===== JAVASCRIPT ===== -->
+    <!-- ===== JAVASCRIPT – PERBAIKAN FINAL ===== -->
     <script>
         // =============================================================
         // 1. KONFIGURASI
@@ -1432,10 +552,9 @@
         };
 
         // =============================================================
-        // 2. REFERENSI
+        // 2. REFERENSI GLOBAL
         // =============================================================
         var stateManager = null;
-        var mqttManager = null;
         var syncModule = null;
         var chart = null;
         var chartData = { labels: [], temp: [], hum: [], nh3: [], pwmPeltier: [], pwmFan: [], pwmCool: [] };
@@ -1443,7 +562,7 @@
         var uiUpdateInterval = null;
 
         // =============================================================
-        // 3. UTILITY FUNCTIONS
+        // 3. UTILITY
         // =============================================================
         function formatTime(d) {
             d = d || new Date();
@@ -1529,7 +648,7 @@
         }
 
         // =============================================================
-        // 5. RENDER FUNCTIONS
+        // 5. RENDER NOTIF, LOG, ALARM
         // =============================================================
         function renderNotifications() {
             var container = document.getElementById('notifList');
@@ -1598,133 +717,142 @@
         }
 
         // =============================================================
-        // 6. UI UPDATE FUNCTIONS (dari state)
+        // 6. UI UPDATE – DIPANGGIL SETIAP DETIK
         // =============================================================
-        function updateModeUI() {
-            var mode = stateManager ? stateManager.get('mode') || 'AUTO' : 'AUTO';
-            var actuatorMode = document.getElementById('actuatorMode');
-            if (actuatorMode) {
-                actuatorMode.innerHTML = 'Mode: <strong>' + mode + '</strong>';
+        function updateUI() {
+            // Gunakan SyncModule jika tersedia, atau StateManager langsung
+            var state;
+            if (syncModule && typeof syncModule.getState === 'function') {
+                state = syncModule.getState();
+            } else if (stateManager) {
+                // Jika stateManager punya getState(), gunakan; jika tidak, baca per field
+                if (typeof stateManager.getState === 'function') {
+                    state = stateManager.getState();
+                } else {
+                    state = {
+                        temperature: stateManager.get('temperature'),
+                        humidity: stateManager.get('humidity'),
+                        nh3: stateManager.get('nh3'),
+                        health: stateManager.get('health'),
+                        peltierOn: stateManager.get('peltierOn'),
+                        peltierPwm: stateManager.get('peltierPwm'),
+                        fanOn: stateManager.get('fanOn'),
+                        fanPwm: stateManager.get('fanPwm'),
+                        coolFanOn: stateManager.get('coolFanOn'),
+                        coolFanPwm: stateManager.get('coolFanPwm'),
+                        mode: stateManager.get('mode'),
+                        isMqttConnected: stateManager.get('isMqttConnected'),
+                        wifiStatus: stateManager.get('wifiStatus'),
+                        isSpreadsheetConnected: stateManager.get('isSpreadsheetConnected'),
+                        notifications: stateManager.get('notifications'),
+                        logs: stateManager.get('logs'),
+                        alarms: stateManager.get('alarms'),
+                    };
+                }
+            } else {
+                console.warn('[UI] Tidak ada stateManager');
+                return;
             }
-        }
 
-        function updateSensorDisplay() {
-            var temp = stateManager ? stateManager.get('temperature') : null;
-            var hum = stateManager ? stateManager.get('humidity') : null;
-            var nh3 = stateManager ? stateManager.get('nh3') : null;
+            // Jika state null, abort
+            if (!state) return;
 
-            // Debug log
-            console.log('[UI] Sensor values from stateManager:', { temp: temp, hum: hum, nh3: nh3 });
+            // Ambil nilai dari state
+            var temp = state.temperature;
+            var hum = state.humidity;
+            var nh3 = state.nh3;
+            var health = state.health || 100;
+            var peltierOn = state.peltierOn || false;
+            var peltierPwm = state.peltierPwm || 0;
+            var fanOn = state.fanOn || false;
+            var fanPwm = state.fanPwm || 0;
+            var coolFanOn = state.coolFanOn || false;
+            var coolFanPwm = state.coolFanPwm || 0;
+            var mode = state.mode || 'AUTO';
 
-            var tempValue = safeNumber(temp, 0);
-            var humValue = safeNumber(hum, 0);
-            var nh3Value = safeNumber(nh3, 0);
+            // LOG setiap 10 detik
+            if (Math.floor(Date.now() / 10000) !== Math.floor((Date.now() - 10000) / 10000)) {
+                console.log('[UI] State values:', { temp, hum, nh3, health, mode, peltierOn, peltierPwm });
+            }
 
+            // ---- Sensor Values ----
             var tempEl = document.getElementById('tempValue');
-            if (tempEl) tempEl.innerHTML = formatValue(temp, 1) + ' <span class="unit">°C</span>';
+            if (tempEl) tempEl.innerHTML = (temp !== null && temp !== undefined ? Number(temp).toFixed(1) : '--') +
+                ' <span class="unit">°C</span>';
 
             var humEl = document.getElementById('humValue');
-            if (humEl) humEl.innerHTML = formatValue(hum, 1) + ' <span class="unit">%RH</span>';
+            if (humEl) humEl.innerHTML = (hum !== null && hum !== undefined ? Number(hum).toFixed(1) : '--') +
+                ' <span class="unit">%RH</span>';
 
             var nh3El = document.getElementById('nh3Value');
-            if (nh3El) nh3El.innerHTML = formatValue(nh3, 1) + ' <span class="unit">ppm</span>';
+            if (nh3El) nh3El.innerHTML = (nh3 !== null && nh3 !== undefined ? Number(nh3).toFixed(1) : '--') +
+                ' <span class="unit">ppm</span>';
 
-            var tempPct = ((tempValue - 24) / (29 - 24)) * 100;
+            // ---- Progress Bars ----
+            var tempVal = safeNumber(temp, 24);
+            var tempPct = ((tempVal - 24) / (29 - 24)) * 100;
             var tempProgress = document.getElementById('tempProgress');
             if (tempProgress) {
                 tempProgress.style.width = clamp(tempPct, 0, 100) + '%';
-                tempProgress.style.background = tempValue > 29 ? '#e74c3c' : tempValue < 26 ? '#f1c40f' : '#2a9d8f';
+                tempProgress.style.background = tempVal > 29 ? '#e74c3c' : tempVal < 26 ? '#f1c40f' : '#2a9d8f';
             }
 
-            var humPct = ((humValue - 60) / (90 - 60)) * 100;
+            var humVal = safeNumber(hum, 70);
+            var humPct = ((humVal - 60) / (90 - 60)) * 100;
             var humProgress = document.getElementById('humProgress');
             if (humProgress) {
                 humProgress.style.width = clamp(humPct, 0, 100) + '%';
-                humProgress.style.background = humValue > 90 ? '#e74c3c' : humValue < 60 ? '#f1c40f' : '#3498db';
+                humProgress.style.background = humVal > 90 ? '#e74c3c' : humVal < 60 ? '#f1c40f' : '#3498db';
             }
 
-            var nh3Pct = (nh3Value / 25) * 100;
+            var nh3Val = safeNumber(nh3, 2);
+            var nh3Pct = (nh3Val / 25) * 100;
             var nh3Progress = document.getElementById('nh3Progress');
             if (nh3Progress) {
                 nh3Progress.style.width = clamp(nh3Pct, 0, 100) + '%';
-                nh3Progress.style.background = nh3Value > 25 ? '#e74c3c' : nh3Value > 15 ? '#f1c40f' : '#2a9d8f';
+                nh3Progress.style.background = nh3Val > 25 ? '#e74c3c' : nh3Val > 15 ? '#f1c40f' : '#2a9d8f';
             }
 
-            var hasTemp = temp !== null && temp !== undefined && !Number.isNaN(Number(temp));
+            // ---- Badges ----
             var tempBadge = document.getElementById('tempStatusBadge');
             if (tempBadge) {
-                tempBadge.textContent = !hasTemp ? 'Menunggu' : tempValue > 29 ? 'Panas' : tempValue < 26 ? 'Dingin' :
-                    'Normal';
-                tempBadge.className = 'status-badge ' + (!hasTemp ? 'normal' : tempValue > 29 ? 'danger' : tempValue < 26 ?
+                var hasTemp = temp !== null && temp !== undefined && !Number.isNaN(Number(temp));
+                tempBadge.textContent = !hasTemp ? 'Menunggu' : tempVal > 29 ? 'Panas' : tempVal < 26 ? 'Dingin' :
+                'Normal';
+                tempBadge.className = 'status-badge ' + (!hasTemp ? 'normal' : tempVal > 29 ? 'danger' : tempVal < 26 ?
                     'warning' : 'normal');
             }
 
-            var hasHum = hum !== null && hum !== undefined && !Number.isNaN(Number(hum));
             var humBadge = document.getElementById('humStatusBadge');
             if (humBadge) {
-                humBadge.textContent = !hasHum ? 'Menunggu' : humValue > 90 ? 'Basah' : humValue < 60 ? 'Kering' :
+                var hasHum = hum !== null && hum !== undefined && !Number.isNaN(Number(hum));
+                humBadge.textContent = !hasHum ? 'Menunggu' : humVal > 90 ? 'Basah' : humVal < 60 ? 'Kering' :
                 'Normal';
-                humBadge.className = 'status-badge ' + (!hasHum ? 'normal' : humValue > 90 ? 'danger' : humValue < 60 ?
+                humBadge.className = 'status-badge ' + (!hasHum ? 'normal' : humVal > 90 ? 'danger' : humVal < 60 ?
                     'warning' : 'normal');
             }
 
-            var hasNh3 = nh3 !== null && nh3 !== undefined && !Number.isNaN(Number(nh3));
             var nh3Badge = document.getElementById('nh3StatusBadge');
             if (nh3Badge) {
-                nh3Badge.textContent = !hasNh3 ? 'Menunggu' : nh3Value > 25 ? 'Berbahaya' : nh3Value > 15 ? 'Waspada' :
+                var hasNh3 = nh3 !== null && nh3 !== undefined && !Number.isNaN(Number(nh3));
+                nh3Badge.textContent = !hasNh3 ? 'Menunggu' : nh3Val > 25 ? 'Berbahaya' : nh3Val > 15 ? 'Waspada' :
                     'Normal';
-                nh3Badge.className = 'status-badge ' + (!hasNh3 ? 'normal' : nh3Value > 25 ? 'danger' : nh3Value > 15 ?
+                nh3Badge.className = 'status-badge ' + (!hasNh3 ? 'normal' : nh3Val > 25 ? 'danger' : nh3Val > 15 ?
                     'warning' : 'normal');
             }
 
-            var gaugeTempVal = document.getElementById('gaugeTempVal');
-            if (gaugeTempVal) gaugeTempVal.textContent = formatValue(temp, 1);
-            var gaugeHumVal = document.getElementById('gaugeHumVal');
-            if (gaugeHumVal) gaugeHumVal.textContent = formatValue(hum, 1);
-            var gaugeNh3Val = document.getElementById('gaugeNh3Val');
-            if (gaugeNh3Val) gaugeNh3Val.textContent = formatValue(nh3, 1);
-        }
-
-        function updateActuatorDisplay() {
-            var peltierOn = stateManager ? stateManager.get('peltierOn') || false : false;
-            var peltierPwm = stateManager ? stateManager.get('peltierPwm') || 0 : 0;
-            var fanOn = stateManager ? stateManager.get('fanOn') || false : false;
-            var fanPwm = stateManager ? stateManager.get('fanPwm') || 0 : 0;
-            var coolFanOn = stateManager ? stateManager.get('coolFanOn') || false : false;
-            var coolFanPwm = stateManager ? stateManager.get('coolFanPwm') || 0 : 0;
-
-            updateModeUI();
-
-            var peltier = document.getElementById('peltierDetail');
-            if (peltier) peltier.textContent = (peltierOn ? 'ON' : 'OFF') + ' · ' + formatValue(peltierPwm, 0) + '%';
-            var pLed = document.getElementById('peltierLed');
-            if (pLed) pLed.className = 'status-led ' + (peltierOn ? 'on' : 'off');
-
-            var fan = document.getElementById('fanDetail');
-            if (fan) fan.textContent = (fanOn ? 'ON' : 'OFF') + ' · ' + formatValue(fanPwm, 0) + '%';
-            var fLed = document.getElementById('fanLed');
-            if (fLed) fLed.className = 'status-led ' + (fanOn ? 'on' : 'off');
-
-            var cool = document.getElementById('coolFanDetail');
-            if (cool) cool.textContent = (coolFanOn ? 'ON' : 'OFF') + ' · ' + formatValue(coolFanPwm, 0) + '%';
-            var cLed = document.getElementById('coolFanLed');
-            if (cLed) cLed.className = 'status-led ' + (coolFanOn ? 'on' : 'off');
-        }
-
-        function updateHealthDisplay() {
-            var health = stateManager ? stateManager.get('health') || 100 : 100;
-            var val = Math.round(clamp(safeNumber(health, 0), 0, 100));
-
+            // ---- Health ----
+            var healthVal = Math.round(clamp(safeNumber(health, 0), 0, 100));
             var healthValue = document.getElementById('healthValue');
-            if (healthValue) healthValue.textContent = val + '%';
+            if (healthValue) healthValue.textContent = healthVal + '%';
 
             var ring = document.getElementById('healthRing');
             var label = document.getElementById('healthLabel');
             if (ring) {
-                if (val >= 80) {
+                if (healthVal >= 80) {
                     ring.style.border = '4px solid #2a9d8f';
                     ring.style.boxShadow = '0 0 30px rgba(42,157,143,0.2)';
-                } else if (val >= 60) {
+                } else if (healthVal >= 60) {
                     ring.style.border = '4px solid #f1c40f';
                     ring.style.boxShadow = '0 0 30px rgba(241,196,15,0.2)';
                 } else {
@@ -1733,10 +861,10 @@
                 }
             }
             if (label) {
-                if (val >= 80) {
+                if (healthVal >= 80) {
                     label.textContent = 'Baik';
                     label.className = 'text-xs text-green-400';
-                } else if (val >= 60) {
+                } else if (healthVal >= 60) {
                     label.textContent = 'Waspada';
                     label.className = 'text-xs text-yellow-400';
                 } else {
@@ -1744,12 +872,44 @@
                     label.className = 'text-xs text-red-400';
                 }
             }
-        }
 
-        function updateStatusIndicators() {
-            var mqttConnected = stateManager ? stateManager.get('isMqttConnected') || false : false;
-            var wifiConnected = stateManager ? stateManager.get('wifiStatus') === 'online' : true;
-            var sheetConnected = stateManager ? stateManager.get('isSpreadsheetConnected') || false : true;
+            // ---- Aktuator ----
+            var peltierDetail = document.getElementById('peltierDetail');
+            if (peltierDetail) peltierDetail.textContent = (peltierOn ? 'ON' : 'OFF') + ' · ' + Math.round(peltierPwm) +
+                '%';
+            var pLed = document.getElementById('peltierLed');
+            if (pLed) pLed.className = 'status-led ' + (peltierOn ? 'on' : 'off');
+
+            var fanDetail = document.getElementById('fanDetail');
+            if (fanDetail) fanDetail.textContent = (fanOn ? 'ON' : 'OFF') + ' · ' + Math.round(fanPwm) + '%';
+            var fLed = document.getElementById('fanLed');
+            if (fLed) fLed.className = 'status-led ' + (fanOn ? 'on' : 'off');
+
+            var coolDetail = document.getElementById('coolFanDetail');
+            if (coolDetail) coolDetail.textContent = (coolFanOn ? 'ON' : 'OFF') + ' · ' + Math.round(coolFanPwm) + '%';
+            var cLed = document.getElementById('coolFanLed');
+            if (cLed) cLed.className = 'status-led ' + (coolFanOn ? 'on' : 'off');
+
+            var actuatorMode = document.getElementById('actuatorMode');
+            if (actuatorMode) actuatorMode.innerHTML = 'Mode: <strong>' + mode + '</strong>';
+
+            // ---- Gauge ----
+            drawGauge('gaugeTemp', temp, 20, 35, '#2a9d8f');
+            drawGauge('gaugeHum', hum, 40, 100, '#3498db');
+            drawGauge('gaugeNh3', nh3, 0, 40, '#f1c40f');
+
+            // ---- Gauge center values ----
+            var gTemp = document.getElementById('gaugeTempVal');
+            if (gTemp) gTemp.textContent = (temp !== null && temp !== undefined ? Number(temp).toFixed(1) : '--');
+            var gHum = document.getElementById('gaugeHumVal');
+            if (gHum) gHum.textContent = (hum !== null && hum !== undefined ? Number(hum).toFixed(1) : '--');
+            var gNh3 = document.getElementById('gaugeNh3Val');
+            if (gNh3) gNh3.textContent = (nh3 !== null && nh3 !== undefined ? Number(nh3).toFixed(1) : '--');
+
+            // ---- Status indicators ----
+            var mqttConnected = state.isMqttConnected || false;
+            var wifiConnected = state.wifiStatus === 'online' || true;
+            var sheetConnected = state.isSpreadsheetConnected || false;
 
             var setDot = function(id, online) {
                 var el = document.getElementById(id);
@@ -1761,49 +921,34 @@
 
             var statusEsp = document.getElementById('statusEsp');
             if (statusEsp) statusEsp.className = 'dot ' + (wifiConnected ? 'green' : 'red');
-
             var statusWifi = document.getElementById('statusWifi');
             if (statusWifi) statusWifi.className = 'dot ' + (wifiConnected ? 'green' : 'red');
-
             var statusMqtt = document.getElementById('statusMqtt');
             if (statusMqtt) statusMqtt.className = 'dot ' + (mqttConnected ? 'green' : 'red');
-
             var statusSheet = document.getElementById('statusSheet');
             if (statusSheet) statusSheet.className = 'dot ' + (sheetConnected ? 'green' : 'red');
-
-            var mode = stateManager ? stateManager.get('mode') || 'AUTO' : 'AUTO';
             var statusFuzzy = document.getElementById('statusFuzzy');
             if (statusFuzzy) statusFuzzy.className = 'dot ' + (mode === 'AUTO' ? 'green' : 'yellow');
-
-            var health = stateManager ? stateManager.get('health') || 100 : 100;
             var statusSelf = document.getElementById('statusSelf');
-            if (statusSelf) statusSelf.className = 'dot ' + (health > 60 ? 'green' : 'yellow');
+            if (statusSelf) statusSelf.className = 'dot ' + (healthVal > 60 ? 'green' : 'yellow');
+
+            // ---- Chart ----
+            updateChart(temp, hum, nh3, peltierPwm, fanPwm, coolFanPwm);
+
+            // ---- Notifikasi & Log (ambil dari state) ----
+            var notifs = state.notifications || [];
+            var logs = state.logs || [];
+            var alarms = state.alarms || [];
+
+            renderNotifications();
+            renderLogs();
+            renderAlarms();
         }
 
         // =============================================================
-        // 7. MAIN UPDATE
+        // 7. GAUGE DRAWING
         // =============================================================
-        function updateAllUI() {
-            console.log('[UI] updateAllUI called at', formatTime());
-            try {
-                updateSensorDisplay();
-                updateActuatorDisplay();
-                updateHealthDisplay();
-                updateStatusIndicators();
-                updateGauges();
-                updateChartData();
-                renderNotifications();
-                renderLogs();
-                renderAlarms();
-            } catch (e) {
-                console.error('[UI] Error in updateAllUI:', e);
-            }
-        }
-
-        // =============================================================
-        // 8. GAUGES (Canvas)
-        // =============================================================
-        function drawGauge(canvasId, value, min, max, unit, color) {
+        function drawGauge(canvasId, value, min, max, color) {
             var canvas = document.getElementById(canvasId);
             if (!canvas || !canvas.getContext || !canvas.parentElement) return;
             var ctx = canvas.getContext('2d');
@@ -1832,10 +977,9 @@
             ctx.stroke();
 
             var grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
-            var c = color || '#2a9d8f';
-            grad.addColorStop(0, c);
-            grad.addColorStop(0.5, c);
-            grad.addColorStop(1, c);
+            grad.addColorStop(0, color);
+            grad.addColorStop(0.5, color);
+            grad.addColorStop(1, color);
             ctx.beginPath();
             ctx.arc(cx, cy, r, startAngle, angle);
             ctx.strokeStyle = grad;
@@ -1849,17 +993,8 @@
             ctx.fill();
         }
 
-        function updateGauges() {
-            var temp = stateManager ? stateManager.get('temperature') : null;
-            var hum = stateManager ? stateManager.get('humidity') : null;
-            var nh3 = stateManager ? stateManager.get('nh3') : null;
-            drawGauge('gaugeTemp', temp, 20, 35, '°C', '#2a9d8f');
-            drawGauge('gaugeHum', hum, 40, 100, '%RH', '#3498db');
-            drawGauge('gaugeNh3', nh3, 0, 40, 'ppm', '#f1c40f');
-        }
-
         // =============================================================
-        // 9. CHART (Chart.js)
+        // 8. CHART
         // =============================================================
         function initChart() {
             var ctx = document.getElementById('realtimeChart').getContext('2d');
@@ -1956,25 +1091,18 @@
             });
         }
 
-        function updateChartData() {
+        function updateChart(temp, hum, nh3, peltierPwm, fanPwm, coolFanPwm) {
             if (!chart) return;
             var now = formatTime();
             var maxPoints = 200;
-
-            var temp = stateManager ? stateManager.get('temperature') : null;
-            var hum = stateManager ? stateManager.get('humidity') : null;
-            var nh3 = stateManager ? stateManager.get('nh3') : null;
-            var peltierPwm = stateManager ? stateManager.get('peltierPwm') || 0 : 0;
-            var fanPwm = stateManager ? stateManager.get('fanPwm') || 0 : 0;
-            var coolFanPwm = stateManager ? stateManager.get('coolFanPwm') || 0 : 0;
 
             chartData.labels.push(now);
             chartData.temp.push(safeNumber(temp, 0));
             chartData.hum.push(safeNumber(hum, 0));
             chartData.nh3.push(safeNumber(nh3, 0));
-            chartData.pwmPeltier.push(peltierPwm);
-            chartData.pwmFan.push(fanPwm);
-            chartData.pwmCool.push(coolFanPwm);
+            chartData.pwmPeltier.push(peltierPwm || 0);
+            chartData.pwmFan.push(fanPwm || 0);
+            chartData.pwmCool.push(coolFanPwm || 0);
 
             if (chartData.labels.length > maxPoints) {
                 chartData.labels.shift();
@@ -1997,7 +1125,7 @@
         }
 
         // =============================================================
-        // 10. CLOCK & SIDEBAR
+        // 9. CLOCK & SIDEBAR
         // =============================================================
         function updateClock() {
             document.getElementById('clock').textContent = formatTime();
@@ -2017,7 +1145,7 @@
         });
 
         // =============================================================
-        // 11. CHART RANGE BUTTONS
+        // 10. CHART RANGE BUTTONS
         // =============================================================
         document.querySelectorAll('[data-range]').forEach(function(btn) {
             btn.addEventListener('click', function() {
@@ -2028,7 +1156,7 @@
         });
 
         // =============================================================
-        // 12. MODAL
+        // 11. MODAL
         // =============================================================
         var modalCallback = null;
 
@@ -2059,28 +1187,31 @@
         });
 
         // =============================================================
-        // 13. INISIALISASI (DIPERBAIKI)
+        // 12. INISIALISASI UTAMA (FINAL)
         // =============================================================
         function init() {
             console.log('[Dashboard] init called');
+
             if (initialized) {
                 console.log('[Dashboard] Already initialized');
                 return;
             }
-            initialized = true;
 
-            // Tunggu Core siap
-            if (typeof Core === 'undefined' || !Core.initialized) {
-                console.log('[Dashboard] Menunggu Core siap...');
-                setTimeout(init, 500);
+            // Tunggu Core dan Sync siap (core.js auto-init, sync.js auto-init)
+            // Kita cek keberadaan SyncModule yang sudah di-load
+            if (typeof window.SyncModule === 'undefined') {
+                console.log('[Dashboard] Menunggu SyncModule siap...');
+                setTimeout(init, 300);
                 return;
             }
 
-            // Ambil StateManager dari global (diekspos oleh core.js)
-            stateManager = window.StateManager;
+            // Ambil StateManager dari global
+            stateManager = window.StateManager || null;
+            syncModule = window.SyncModule || null;
+
             if (!stateManager) {
                 console.error('[Dashboard] StateManager tidak ditemukan!');
-                // Fallback minimal agar tidak crash
+                // Buat fallback minimal agar tidak crash
                 stateManager = {
                     get: function() { return null; },
                     set: function() {},
@@ -2088,70 +1219,50 @@
                     update: function() {}
                 };
             }
-            mqttManager = window.MqttManager || window.mqttManager || null;
-            syncModule = window.SyncModule || null;
 
             console.log('[Dashboard] stateManager:', stateManager);
-            console.log('[Dashboard] mqttManager:', mqttManager);
-
-            // Daftarkan listener untuk perubahan state
-            if (stateManager && typeof stateManager.addListener === 'function') {
-                // Hapus listener lama jika ada untuk menghindari duplikasi
-                // stateManager.removeListener('*', updateAllUI); // opsional
-                stateManager.addListener('*', function(key, newValue, oldValue) {
-                    console.log('[UI] State changed:', key, newValue);
-                    updateAllUI();
-                });
-                console.log('[Dashboard] Listener terdaftar');
-            } else {
-                console.warn('[Dashboard] StateManager tidak punya addListener, UI akan diupdate via polling');
-            }
+            console.log('[Dashboard] syncModule:', syncModule);
 
             // Inisialisasi chart
             initChart();
 
-            // Update UI pertama kali
-            updateAllUI();
-            setTimeout(updateGauges, 200);
-
             // Sembunyikan loading
             var loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
-                setTimeout(function() { loadingScreen.classList.add('hide'); }, 800);
+                setTimeout(function() { loadingScreen.classList.add('hide'); }, 500);
             }
+
+            // POLLING SETIAP 1 DETIK – PASTIKAN UI SELALU UPDATE
+            if (uiUpdateInterval) clearInterval(uiUpdateInterval);
+            uiUpdateInterval = setInterval(function() {
+                updateUI();
+            }, 1000);
+
+            // Update UI pertama
+            setTimeout(updateUI, 100);
 
             // Update status periodik
             setInterval(function() {
-                updateStatusIndicators();
+                // updateUI sudah mencakup status indicators
             }, 10000);
 
-            // Periodik update chart
-            setInterval(function() {
-                updateChartData();
-            }, 2000);
+            addNotification('Dashboard siap', 'success');
+            addLog('Sistem dimulai');
 
-            // POLLING FALLBACK (setiap 2 detik) - MEMASTIKAN UI TETAP UPDATE
-            if (uiUpdateInterval) clearInterval(uiUpdateInterval);
-            uiUpdateInterval = setInterval(function() {
-                console.log('[UI] Polling fallback - update UI');
-                updateAllUI();
-            }, 2000);
-
-            addNotification('Dashboard siap dengan Core System', 'success');
-            addLog('Sistem dimulai (Core v3.0)');
-
-            console.log('🐛 Dashboard menggunakan Core System v3.0');
+            console.log('🐛 Dashboard FINAL siap dengan polling 1 detik');
             console.log('📊 StateManager:', stateManager);
-            console.log('📡 MqttManager:', mqttManager);
+            console.log('📡 SyncModule:', syncModule);
+
+            initialized = true;
         }
 
         // =============================================================
-        // 14. START
+        // 13. START
         // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            setTimeout(init, 300);
+            setTimeout(init, 200);
         }
 
         // Fallback: hilangkan loading screen setelah 3 detik
@@ -2162,12 +1273,11 @@
 
         // Ekspos untuk debugging
         window.__stateManager = stateManager;
-        window.__mqttManager = mqttManager;
         window.__syncModule = syncModule;
-        window.__showToast = showToast;
-        window.__updateAllUI = updateAllUI;
+        window.__updateUI = updateUI;
+        window.__init = init;
 
-        console.log('🐛 Dashboard siap, menunggu Core System...');
+        console.log('🐛 Dashboard siap, menunggu inisialisasi...');
     </script>
 
 </body>

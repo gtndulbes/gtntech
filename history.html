@@ -14,13 +14,9 @@
 
     <!-- ============================================================ -->
     <!--  CORE SYSTEM – WAJIB dimuat sebelum sync.js dan modul lain   -->
-    <!--  core.js menyediakan StateManager, MqttManager, CONFIG, dll  -->
     <!-- ============================================================ -->
-    <script src="assets/js/core.js">
-    </script>
-    <script src="assets/js/sync.js">
-    </script>
-    <!-- mqtt-config.js TIDAK diperlukan karena core.js sudah mengekspos semua -->
+    <script src="assets/js/core.js"></script>
+    <script src="assets/js/sync.js"></script>
 
     <style>
         /* ===== RESET & BASE ===== */
@@ -999,10 +995,10 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- ============================================================ -->
-    <!-- ===== JAVASCRIPT ===== -->
+    <!-- ===== JAVASCRIPT (PERBAIKAN FINAL) ===== -->
     <script>
         // =============================================================
-        // 1. KONFIGURASI UNTUK CORE
+        // 1. KONFIGURASI
         // =============================================================
         var APP_CONFIG = {
             SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA/exec',
@@ -1013,7 +1009,7 @@
         };
 
         // =============================================================
-        // 2. STATE REFERENCE (dari Core)
+        // 2. REFERENSI GLOBAL
         // =============================================================
         var stateManager = null;
         var mqttManager = null;
@@ -1021,9 +1017,10 @@
         var syncModule = null;
         var initialized = false;
         var isLoading = false;
+        var uiUpdateInterval = null;
 
         // =============================================================
-        // 3. UI STATE (filter, pagination)
+        // 3. UI STATE
         // =============================================================
         var uiState = {
             allData: [],
@@ -1037,7 +1034,7 @@
         };
 
         // =============================================================
-        // 4. UTILITY FUNCTIONS
+        // 4. UTILITY
         // =============================================================
         function formatTime(d) {
             d = d || new Date();
@@ -1068,6 +1065,14 @@
             return Number.isNaN(num) ? '---' : num.toFixed(digits);
         }
 
+        function clamp(v, min, max) {
+            return Math.min(Math.max(v, min), max);
+        }
+
+        function randomBetween(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
         // =============================================================
         // 5. TOAST
         // =============================================================
@@ -1095,7 +1100,7 @@
         }
 
         // =============================================================
-        // 6. GET STATE FROM CORE
+        // 6. STATE HELPERS
         // =============================================================
         function getState(key) {
             if (stateManager) {
@@ -1109,61 +1114,21 @@
             return null;
         }
 
-        // =============================================================
-        // 7. FETCH DATA FROM SPREADSHEET
-        // =============================================================
-        function fetchHistoryData() {
-            if (isLoading) return Promise.resolve();
-            isLoading = true;
-
-            // Cek apakah spreadsheetManager tersedia
-            if (spreadsheetManager && typeof spreadsheetManager.getHistory === 'function') {
-                return spreadsheetManager.getHistory({ limit: APP_CONFIG.MAX_RECORDS })
-                    .then(function(data) {
-                        if (data && data.length > 0) {
-                            uiState.allData = data;
-                            uiState.lastSync = new Date();
-                            // Update status spreadsheet
-                            if (typeof spreadsheetManager.isConnected !== 'undefined') {
-                                updateSheetStatus(spreadsheetManager.isConnected);
-                            }
-                            showToast('Data dimuat: ' + data.length + ' records', 'success');
-                        } else {
-                            // Jika data kosong, coba fallback
-                            return loadFallbackData();
-                        }
-                        isLoading = false;
-                        filterData();
-                        hideLoading();
-                        return data;
-                    })
-                    .catch(function(err) {
-                        console.warn('Spreadsheet getHistory error:', err);
-                        updateSheetStatus(false);
-                        return loadFallbackData();
-                    })
-                    .finally(function() {
-                        isLoading = false;
-                    });
-            } else {
-                // Fallback ke mock
-                return loadFallbackData();
+        function setState(key, value, options) {
+            options = options || { publish: true, sync: true };
+            if (stateManager) {
+                if (typeof stateManager.set === 'function') {
+                    stateManager.set(key, value, options);
+                } else if (typeof stateManager.update === 'function') {
+                    var updates = {};
+                    updates[key] = value;
+                    stateManager.update(updates, options);
+                }
             }
         }
 
-        function loadFallbackData() {
-            var mock = generateMockData(80);
-            uiState.allData = mock;
-            uiState.lastSync = new Date();
-            updateSheetStatus(false);
-            showToast('Data simulasi dimuat: ' + mock.length + ' records', 'info');
-            filterData();
-            hideLoading();
-            return Promise.resolve(mock);
-        }
-
         // =============================================================
-        // 8. GENERATE MOCK DATA (fallback)
+        // 7. GENERATE MOCK DATA (fallback)
         // =============================================================
         function generateMockData(count) {
             count = count || 80;
@@ -1200,12 +1165,55 @@
             return data;
         }
 
-        function clamp(v, min, max) {
-            return Math.min(Math.max(v, min), max);
+        // =============================================================
+        // 8. FETCH DATA FROM SPREADSHEET
+        // =============================================================
+        function fetchHistoryData() {
+            if (isLoading) return Promise.resolve();
+            isLoading = true;
+
+            // Cek apakah spreadsheetManager tersedia dan memiliki getHistory
+            if (spreadsheetManager && typeof spreadsheetManager.getHistory === 'function') {
+                return spreadsheetManager.getHistory({ limit: APP_CONFIG.MAX_RECORDS })
+                    .then(function(data) {
+                        if (data && data.length > 0) {
+                            uiState.allData = data;
+                            uiState.lastSync = new Date();
+                            if (typeof spreadsheetManager.isConnected !== 'undefined') {
+                                updateSheetStatus(spreadsheetManager.isConnected);
+                            }
+                            showToast('Data dimuat: ' + data.length + ' records', 'success');
+                        } else {
+                            return loadFallbackData();
+                        }
+                        isLoading = false;
+                        filterData();
+                        hideLoading();
+                        return data;
+                    })
+                    .catch(function(err) {
+                        console.warn('Spreadsheet getHistory error:', err);
+                        updateSheetStatus(false);
+                        return loadFallbackData();
+                    })
+                    .finally(function() {
+                        isLoading = false;
+                    });
+            } else {
+                // Fallback ke mock
+                return loadFallbackData();
+            }
         }
 
-        function randomBetween(min, max) {
-            return Math.random() * (max - min) + min;
+        function loadFallbackData() {
+            var mock = generateMockData(80);
+            uiState.allData = mock;
+            uiState.lastSync = new Date();
+            updateSheetStatus(false);
+            showToast('Data simulasi dimuat: ' + mock.length + ' records', 'info');
+            filterData();
+            hideLoading();
+            return Promise.resolve(mock);
         }
 
         // =============================================================
@@ -1543,91 +1551,60 @@
         document.getElementById('exportPdfBtn').addEventListener('click', exportPDF);
 
         // =============================================================
-        // 18. SINKRONISASI DARI SyncModule
-        // =============================================================
-        if (typeof SyncModule !== 'undefined') {
-            SyncModule.setOnStateChange(function(syncState) {
-                // Update UI jika ada perubahan state yang relevan
-                updateStatusIndicators();
-            });
-        }
-
-        // =============================================================
-        // 19. INITIALIZATION
+        // 18. INISIALISASI (FINAL)
         // =============================================================
         function init() {
-            if (initialized) return;
-            initialized = true;
+            console.log('[DataLogger] init called');
 
-            // Tunggu Core siap
-            if (typeof Core === 'undefined' || !Core.initialized) {
-                setTimeout(init, 500);
+            if (initialized) {
+                console.log('[DataLogger] Already initialized');
                 return;
             }
 
-            stateManager = Core.getStateManager ? Core.getStateManager() : null;
-            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
-            spreadsheetManager = Core.getSpreadsheetManager ? Core.getSpreadsheetManager() : null;
-            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+            // Tunggu Core dan Sync siap
+            if (typeof window.SyncModule === 'undefined') {
+                console.log('[DataLogger] Menunggu SyncModule siap...');
+                setTimeout(init, 300);
+                return;
+            }
+
+            stateManager = window.StateManager || null;
+            mqttManager = window.MqttManager || window.mqttManager || null;
+            spreadsheetManager = window.SpreadsheetManager || null;
+            syncModule = window.SyncModule || null;
 
             if (!stateManager) {
-                console.warn('StateManager tidak tersedia, gunakan fallback');
+                console.error('[DataLogger] StateManager tidak ditemukan!');
                 stateManager = {
-                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
-                    set: function(key, value) {
-                        window.__fallbackState = window.__fallbackState || {};
-                        window.__fallbackState[key] = value;
-                    },
-                    addListener: function() {}
+                    get: function() { return null; },
+                    set: function() {},
+                    addListener: function() {},
+                    update: function() {}
                 };
-                window.__fallbackState = {};
             }
 
-            // Inisialisasi Core jika belum
-            if (typeof Core.init === 'function' && !Core.initialized) {
-                Core.init({
-                    config: {
-                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
-                    },
-                    telegram: {
-                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
-                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
-                    }
-                });
-                // Re-get managers setelah init
-                stateManager = Core.getStateManager ? Core.getStateManager() : stateManager;
-                mqttManager = Core.getMqttManager ? Core.getMqttManager() : mqttManager;
-                spreadsheetManager = Core.getSpreadsheetManager ? Core.getSpreadsheetManager() : spreadsheetManager;
+            console.log('[DataLogger] stateManager:', stateManager);
+            console.log('[DataLogger] mqttManager:', mqttManager);
+            console.log('[DataLogger] spreadsheetManager:', spreadsheetManager);
+            console.log('[DataLogger] syncModule:', syncModule);
+
+            // Sembunyikan loading
+            var loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                setTimeout(function() { loadingScreen.classList.add('hide'); }, 500);
             }
 
-            // Subscribe ke perubahan state via StateManager
-            if (stateManager && typeof stateManager.addListener === 'function') {
-                stateManager.addListener('*', function(key, value, oldValue) {
-                    updateStatusIndicators();
-                });
-            }
+            // POLLING SETIAP 1 DETIK – update status indikator
+            if (uiUpdateInterval) clearInterval(uiUpdateInterval);
+            uiUpdateInterval = setInterval(function() {
+                updateStatusIndicators();
+            }, 1000);
 
-            // Gunakan SyncModule untuk sinkronisasi antar user
-            if (syncModule && typeof syncModule.subscribeState === 'function') {
-                syncModule.subscribeState(mqttManager);
-                syncModule.setOnStateChange(function(state) {
-                    updateStatusIndicators();
-                });
-            }
-
-            // Update status indikator awal
+            // Update status pertama
             updateStatusIndicators();
 
             // Load data
-            fetchHistoryData().then(function() {
-                // Set default display jika masih kosong
-                var minEl = document.getElementById('tempMin');
-                var maxEl = document.getElementById('tempMax');
-                var avgEl = document.getElementById('tempAvg');
-                if (minEl && minEl.textContent === '--') {
-                    // Data sudah di-load, tidak perlu set default
-                }
-            });
+            fetchHistoryData();
 
             // Auto refresh setiap 30 detik
             setInterval(function() {
@@ -1636,27 +1613,19 @@
                 }
             }, 30000);
 
-            // Update status periodik
-            setInterval(function() {
-                updateStatusIndicators();
-            }, 10000);
+            showToast('Data Logger siap', 'success');
+            console.log('📈 Data Logger FINAL siap dengan polling 1 detik');
 
-            // Pastikan loading screen hilang setelah 3 detik (fallback)
-            setTimeout(function() {
-                hideLoading();
-            }, 3000);
-
-            showToast('Data Logger siap dengan Core System', 'success');
-            console.log('📈 Data Logger menggunakan Core System v3.0');
+            initialized = true;
         }
 
         // =============================================================
-        // 20. START
+        // 19. START
         // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            setTimeout(init, 300);
+            setTimeout(init, 200);
         }
 
         // Fallback: hilangkan loading screen setelah 3 detik
@@ -1670,7 +1639,9 @@
         window.__stateManager = stateManager;
         window.__spreadsheetManager = spreadsheetManager;
         window.__fetchHistory = fetchHistoryData;
-        console.log('📈 Data Logger siap, menunggu Core System...');
+        window.__updateUI = updateStatusIndicators;
+
+        console.log('📈 Data Logger siap, menunggu inisialisasi...');
     </script>
 
 </body>

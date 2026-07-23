@@ -14,13 +14,9 @@
 
     <!-- ============================================================ -->
     <!--  CORE SYSTEM – WAJIB dimuat sebelum sync.js dan modul lain   -->
-    <!--  core.js menyediakan StateManager, MqttManager, CONFIG, dll  -->
     <!-- ============================================================ -->
-    <script src="assets/js/core.js">
-    </script>
-    <script src="assets/js/sync.js">
-    </script>
-    <!-- mqtt-config.js TIDAK diperlukan karena core.js sudah mengekspos semua -->
+    <script src="assets/js/core.js"></script>
+    <script src="assets/js/sync.js"></script>
 
     <style>
         /* ===== RESET & BASE ===== */
@@ -77,6 +73,9 @@
             padding: 16px 0;
         }
         .sidebar:hover {
+            width: 240px;
+        }
+        .sidebar.open {
             width: 240px;
         }
         .sidebar .logo {
@@ -925,10 +924,10 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- ============================================================ -->
-    <!-- ===== JAVASCRIPT ===== -->
+    <!-- ===== JAVASCRIPT (PERBAIKAN FINAL) ===== -->
     <script>
         // =============================================================
-        // 1. KONFIGURASI UNTUK CORE
+        // 1. KONFIGURASI
         // =============================================================
         var APP_CONFIG = {
             SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA/exec',
@@ -937,16 +936,16 @@
         };
 
         // =============================================================
-        // 2. STATE REFERENCE (dari Core)
+        // 2. REFERENSI GLOBAL
         // =============================================================
         var stateManager = null;
         var mqttManager = null;
         var syncModule = null;
         var initialized = false;
-        var loadingHidden = false;
+        var uiUpdateInterval = null;
 
         // =============================================================
-        // 3. UTILITY FUNCTIONS
+        // 3. UTILITY
         // =============================================================
         function formatTime(d) {
             d = d || new Date();
@@ -980,7 +979,7 @@
         }
 
         // =============================================================
-        // 5. GET STATE FROM CORE
+        // 5. STATE HELPERS
         // =============================================================
         function getState(key) {
             if (stateManager) {
@@ -995,7 +994,7 @@
         }
 
         // =============================================================
-        // 6. UPDATE STATUS INDICATORS
+        // 6. STATUS INDICATORS
         // =============================================================
         function updateStatusIndicators() {
             var mqttConnected = getState('isMqttConnected') || false;
@@ -1015,12 +1014,8 @@
         // 7. HIDE LOADING
         // =============================================================
         function hideLoading() {
-            if (loadingHidden) return;
-            loadingHidden = true;
             var ls = document.getElementById('loading-screen');
-            if (ls) {
-                ls.classList.add('hide');
-            }
+            if (ls) ls.classList.add('hide');
         }
 
         // =============================================================
@@ -1044,96 +1039,69 @@
         });
 
         // =============================================================
-        // 9. SINKRONISASI DARI SyncModule
-        // =============================================================
-        if (typeof SyncModule !== 'undefined') {
-            SyncModule.setOnStateChange(function(syncState) {
-                updateStatusIndicators();
-            });
-        }
-
-        // =============================================================
-        // 10. INITIALIZATION
+        // 9. INISIALISASI (FINAL)
         // =============================================================
         function init() {
-            if (initialized) return;
-            initialized = true;
+            console.log('[About] init called');
 
-            // Tunggu Core siap
-            if (typeof Core === 'undefined' || !Core.initialized) {
-                setTimeout(init, 500);
+            if (initialized) {
+                console.log('[About] Already initialized');
                 return;
             }
 
-            stateManager = Core.getStateManager ? Core.getStateManager() : null;
-            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
-            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+            // Tunggu Core dan Sync siap
+            if (typeof window.SyncModule === 'undefined') {
+                console.log('[About] Menunggu SyncModule siap...');
+                setTimeout(init, 300);
+                return;
+            }
+
+            stateManager = window.StateManager || null;
+            mqttManager = window.MqttManager || window.mqttManager || null;
+            syncModule = window.SyncModule || null;
 
             if (!stateManager) {
-                console.warn('StateManager tidak tersedia, gunakan fallback');
+                console.error('[About] StateManager tidak ditemukan!');
                 stateManager = {
-                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
-                    addListener: function() {}
+                    get: function() { return null; },
+                    set: function() {},
+                    addListener: function() {},
+                    update: function() {}
                 };
-                window.__fallbackState = {};
             }
 
-            // Inisialisasi Core jika belum
-            if (typeof Core.init === 'function' && !Core.initialized) {
-                Core.init({
-                    config: {
-                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
-                    },
-                    telegram: {
-                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
-                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
-                    }
-                });
-                // Re-get managers setelah init
-                stateManager = Core.getStateManager ? Core.getStateManager() : stateManager;
-                mqttManager = Core.getMqttManager ? Core.getMqttManager() : mqttManager;
-            }
-
-            // Subscribe ke perubahan state via StateManager
-            if (stateManager && typeof stateManager.addListener === 'function') {
-                stateManager.addListener('*', function(key, value, oldValue) {
-                    updateStatusIndicators();
-                });
-            }
-
-            // Gunakan SyncModule untuk sinkronisasi antar user
-            if (syncModule && typeof syncModule.subscribeState === 'function') {
-                syncModule.subscribeState(mqttManager);
-                syncModule.setOnStateChange(function(state) {
-                    updateStatusIndicators();
-                });
-            }
-
-            // Update status indikator awal
-            updateStatusIndicators();
+            console.log('[About] stateManager:', stateManager);
+            console.log('[About] mqttManager:', mqttManager);
+            console.log('[About] syncModule:', syncModule);
 
             // Sembunyikan loading
-            hideLoading();
+            setTimeout(hideLoading, 500);
 
-            // Auto refresh status
-            setInterval(function() {
+            // POLLING SETIAP 1 DETIK – update status indikator
+            if (uiUpdateInterval) clearInterval(uiUpdateInterval);
+            uiUpdateInterval = setInterval(function() {
                 updateStatusIndicators();
-            }, 10000);
+            }, 1000);
 
-            showToast('ℹ️ Halaman About siap dengan Core System', 'success');
-            console.log('ℹ️ About menggunakan Core System v3.0');
+            // Update status pertama
+            updateStatusIndicators();
+
+            showToast('ℹ️ Halaman About siap', 'success');
+            console.log('ℹ️ About FINAL siap dengan polling 1 detik');
+
+            initialized = true;
         }
 
         // =============================================================
-        // 11. START
+        // 10. START
         // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            setTimeout(init, 300);
+            setTimeout(init, 200);
         }
 
-        // ===== FALLBACK: loading screen hilang setelah 3 detik =====
+        // Fallback: hilangkan loading screen setelah 3 detik
         setTimeout(function() {
             hideLoading();
         }, 3000);
@@ -1142,7 +1110,8 @@
         window.__stateManager = stateManager;
         window.__mqttManager = mqttManager;
         window.__syncModule = syncModule;
-        console.log('ℹ️ About siap, menunggu Core System...');
+
+        console.log('ℹ️ About siap, menunggu inisialisasi...');
     </script>
 
 </body>

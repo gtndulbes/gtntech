@@ -14,13 +14,9 @@
 
     <!-- ============================================================ -->
     <!--  CORE SYSTEM – WAJIB dimuat sebelum sync.js dan modul lain   -->
-    <!--  core.js menyediakan StateManager, MqttManager, CONFIG, dll  -->
     <!-- ============================================================ -->
-    <script src="assets/js/core.js">
-    </script>
-    <script src="assets/js/sync.js">
-    </script>
-    <!-- mqtt-config.js TIDAK diperlukan karena core.js sudah mengekspos semua -->
+    <script src="assets/js/core.js"></script>
+    <script src="assets/js/sync.js"></script>
 
     <style>
         /* ===== RESET & BASE ===== */
@@ -1116,10 +1112,10 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- ============================================================ -->
-    <!-- ===== JAVASCRIPT ===== -->
+    <!-- ===== JAVASCRIPT (PERBAIKAN FINAL) ===== -->
     <script>
         // =============================================================
-        // 1. KONFIGURASI UNTUK CORE
+        // 1. KONFIGURASI
         // =============================================================
         var APP_CONFIG = {
             SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA/exec',
@@ -1128,107 +1124,16 @@
         };
 
         // =============================================================
-        // 2. STATE REFERENCE (dari Core)
+        // 2. REFERENSI GLOBAL
         // =============================================================
         var stateManager = null;
         var mqttManager = null;
         var syncModule = null;
         var initialized = false;
-
-        // Settings keys
-        var SETTINGS_KEYS = {
-            systemName: 'systemName',
-            samplingInterval: 'samplingInterval',
-            loggingInterval: 'loggingInterval',
-            defaultMode: 'defaultMode',
-            timezone: 'timezone',
-            darkMode: 'darkMode',
-            autoRefresh: 'autoRefresh',
-            wifiSsid: 'wifiSsid',
-            wifiPassword: 'wifiPassword',
-            wifiIp: 'wifiIp',
-            wifiGateway: 'wifiGateway',
-            wifiDhcp: 'wifiDhcp',
-            mqttBroker: 'mqttBroker',
-            mqttClientId: 'mqttClientId',
-            mqttUsername: 'mqttUsername',
-            mqttPassword: 'mqttPassword',
-            mqttTopicPub: 'mqttTopicPub',
-            mqttTopicSub: 'mqttTopicSub',
-            mqttAutoReconnect: 'mqttAutoReconnect',
-            sheetApiUrl: 'sheetApiUrl',
-            sheetId: 'sheetId',
-            sheetName: 'sheetName',
-            sheetLogInterval: 'sheetLogInterval',
-            sheetAutoLog: 'sheetAutoLog',
-            tempOffset: 'tempOffset',
-            humOffset: 'humOffset',
-            nh3Offset: 'nh3Offset',
-            tempMinValid: 'tempMinValid',
-            tempMaxValid: 'tempMaxValid',
-            nh3MaxValid: 'nh3MaxValid',
-            alarmTempMax: 'alarmTempMax',
-            alarmTempMin: 'alarmTempMin',
-            alarmHumMax: 'alarmHumMax',
-            alarmHumMin: 'alarmHumMin',
-            alarmNh3Max: 'alarmNh3Max',
-            alarmDelay: 'alarmDelay',
-            alarmTelegram: 'alarmTelegram',
-            alarmBuzzer: 'alarmBuzzer',
-            userUsername: 'userUsername',
-            userPassword: 'userPassword',
-            userRole: 'userRole',
-            userEmail: 'userEmail',
-        };
-
-        // Default values
-        var DEFAULT_SETTINGS = {
-            systemName: 'IoT Kandang Ulat Hongkong',
-            samplingInterval: 2,
-            loggingInterval: 30,
-            defaultMode: 'AUTO',
-            timezone: 'Asia/Jakarta',
-            darkMode: true,
-            autoRefresh: true,
-            wifiSsid: 'Wifi_UMKM_01',
-            wifiPassword: 'password123',
-            wifiIp: '',
-            wifiGateway: '',
-            wifiDhcp: true,
-            mqttBroker: 'wss://broker.emqx.io:8084/mqtt',
-            mqttClientId: 'iot_esp32_001',
-            mqttUsername: '',
-            mqttPassword: '',
-            mqttTopicPub: 'sensor/sht31',
-            mqttTopicSub: 'actuator/control',
-            mqttAutoReconnect: true,
-            sheetApiUrl: 'https://script.google.com/macros/s/AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA/exec',
-            sheetId: 'AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA',
-            sheetName: 'Data Logger',
-            sheetLogInterval: 30,
-            sheetAutoLog: true,
-            tempOffset: 0,
-            humOffset: 0,
-            nh3Offset: 0,
-            tempMinValid: 0,
-            tempMaxValid: 50,
-            nh3MaxValid: 500,
-            alarmTempMax: 32,
-            alarmTempMin: 24,
-            alarmHumMax: 90,
-            alarmHumMin: 60,
-            alarmNh3Max: 25,
-            alarmDelay: 10,
-            alarmTelegram: true,
-            alarmBuzzer: true,
-            userUsername: 'admin',
-            userPassword: '',
-            userRole: 'admin',
-            userEmail: 'admin@iot.com',
-        };
+        var uiUpdateInterval = null;
 
         // =============================================================
-        // 3. UTILITY FUNCTIONS
+        // 3. UTILITY
         // =============================================================
         function formatTime(d) {
             d = d || new Date();
@@ -1272,7 +1177,7 @@
         }
 
         // =============================================================
-        // 5. GET/SET STATE FROM CORE
+        // 5. STATE HELPERS
         // =============================================================
         function getState(key) {
             if (stateManager) {
@@ -1319,12 +1224,59 @@
         }
 
         // =============================================================
-        // 6. UPDATE UI FROM SETTINGS
+        // 6. DEFAULT SETTINGS
+        // =============================================================
+        var DEFAULT_SETTINGS = {
+            systemName: 'IoT Kandang Ulat Hongkong',
+            samplingInterval: 2,
+            loggingInterval: 30,
+            defaultMode: 'AUTO',
+            timezone: 'Asia/Jakarta',
+            darkMode: true,
+            autoRefresh: true,
+            wifiSsid: 'Wifi_UMKM_01',
+            wifiPassword: 'password123',
+            wifiIp: '',
+            wifiGateway: '',
+            wifiDhcp: true,
+            mqttBroker: 'wss://broker.emqx.io:8084/mqtt',
+            mqttClientId: 'iot_esp32_001',
+            mqttUsername: '',
+            mqttPassword: '',
+            mqttTopicPub: 'sensor/sht31',
+            mqttTopicSub: 'actuator/control',
+            mqttAutoReconnect: true,
+            sheetApiUrl: 'https://script.google.com/macros/s/AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA/exec',
+            sheetId: 'AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA',
+            sheetName: 'Data Logger',
+            sheetLogInterval: 30,
+            sheetAutoLog: true,
+            tempOffset: 0,
+            humOffset: 0,
+            nh3Offset: 0,
+            tempMinValid: 0,
+            tempMaxValid: 50,
+            nh3MaxValid: 500,
+            alarmTempMax: 32,
+            alarmTempMin: 24,
+            alarmHumMax: 90,
+            alarmHumMin: 60,
+            alarmNh3Max: 25,
+            alarmDelay: 10,
+            alarmTelegram: true,
+            alarmBuzzer: true,
+            userUsername: 'admin',
+            userPassword: '',
+            userRole: 'admin',
+            userEmail: 'admin@iot.com',
+        };
+
+        // =============================================================
+        // 7. UPDATE UI FROM SETTINGS
         // =============================================================
         function updateUIFromSettings() {
             var settings = getSettings();
 
-            // Helper to set value if element exists
             function setVal(id, val) {
                 var el = document.getElementById(id);
                 if (el) {
@@ -1387,7 +1339,7 @@
         }
 
         // =============================================================
-        // 7. COLLECT SETTINGS FROM UI
+        // 8. COLLECT SETTINGS FROM UI
         // =============================================================
         function collectSettingsFromUI() {
             function getVal(id) {
@@ -1452,7 +1404,7 @@
         }
 
         // =============================================================
-        // 8. PUBLISH SETTINGS VIA SYNC
+        // 9. PUBLISH SETTINGS VIA SYNC
         // =============================================================
         function publishSettings(settings) {
             settings = settings || collectSettingsFromUI();
@@ -1462,7 +1414,7 @@
         }
 
         // =============================================================
-        // 9. STATUS INDICATORS
+        // 10. STATUS INDICATORS
         // =============================================================
         function updateStatusIndicators() {
             var mqttConnected = getState('isMqttConnected') || false;
@@ -1479,7 +1431,7 @@
         }
 
         // =============================================================
-        // 10. TABS
+        // 11. TABS
         // =============================================================
         document.querySelectorAll('.tab-btn').forEach(function(btn) {
             btn.addEventListener('click', function() {
@@ -1492,46 +1444,21 @@
         });
 
         // =============================================================
-        // 11. SAVE HANDLERS
+        // 12. SAVE HANDLERS
         // =============================================================
-        document.getElementById('saveGeneralBtn').addEventListener('click', function() {
-            publishSettings();
-        });
-
-        document.getElementById('saveWifiBtn').addEventListener('click', function() {
-            publishSettings();
-        });
-
-        document.getElementById('saveMqttBtn').addEventListener('click', function() {
-            publishSettings();
-            // Also test MQTT with new broker if changed
-            var broker = document.getElementById('mqttBroker').value;
-            if (broker && broker !== CONFIG.MQTT_BROKER) {
-                showToast('Broker MQTT diubah, silakan test koneksi', 'info');
-            }
-        });
-
-        document.getElementById('saveSheetBtn').addEventListener('click', function() {
-            publishSettings();
-        });
-
-        document.getElementById('saveSensorBtn').addEventListener('click', function() {
-            publishSettings();
-        });
-
-        document.getElementById('saveAlarmBtn').addEventListener('click', function() {
-            publishSettings();
-        });
-
-        document.getElementById('saveUserBtn').addEventListener('click', function() {
-            publishSettings();
-        });
+        document.getElementById('saveGeneralBtn').addEventListener('click', function() { publishSettings(); });
+        document.getElementById('saveWifiBtn').addEventListener('click', function() { publishSettings(); });
+        document.getElementById('saveMqttBtn').addEventListener('click', function() { publishSettings(); });
+        document.getElementById('saveSheetBtn').addEventListener('click', function() { publishSettings(); });
+        document.getElementById('saveSensorBtn').addEventListener('click', function() { publishSettings(); });
+        document.getElementById('saveAlarmBtn').addEventListener('click', function() { publishSettings(); });
+        document.getElementById('saveUserBtn').addEventListener('click', function() { publishSettings(); });
 
         // =============================================================
-        // 12. TEST CONNECTIONS
+        // 13. TEST CONNECTIONS
         // =============================================================
         document.getElementById('testMqttBtn').addEventListener('click', function() {
-            var broker = document.getElementById('mqttBroker').value || CONFIG.MQTT_BROKER;
+            var broker = document.getElementById('mqttBroker').value || 'wss://broker.emqx.io:8084/mqtt';
             showToast('🔄 Menguji koneksi MQTT ke ' + broker + '...', 'info');
             var testClient = mqtt.connect(broker, {
                 clientId: 'test_' + uid(),
@@ -1613,7 +1540,7 @@
         });
 
         // =============================================================
-        // 13. CLOCK & SIDEBAR
+        // 14. CLOCK & SIDEBAR
         // =============================================================
         function updateClock() {
             document.getElementById('clock').textContent = formatTime();
@@ -1633,109 +1560,67 @@
         });
 
         // =============================================================
-        // 14. SINKRONISASI DARI SyncModule
-        // =============================================================
-        if (typeof SyncModule !== 'undefined') {
-            SyncModule.setOnStateChange(function(syncState) {
-                // Jika ada perubahan settings di syncState, update UI
-                if (syncState.settings) {
-                    updateUIFromSettings();
-                }
-                updateStatusIndicators();
-            });
-        }
-
-        // =============================================================
-        // 15. INITIALIZATION
+        // 15. INISIALISASI (FINAL)
         // =============================================================
         function init() {
-            if (initialized) return;
-            initialized = true;
+            console.log('[Settings] init called');
 
-            // Tunggu Core siap
-            if (typeof Core === 'undefined' || !Core.initialized) {
-                setTimeout(init, 500);
+            if (initialized) {
+                console.log('[Settings] Already initialized');
                 return;
             }
 
-            stateManager = Core.getStateManager ? Core.getStateManager() : null;
-            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
-            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+            // Tunggu Core dan Sync siap
+            if (typeof window.SyncModule === 'undefined') {
+                console.log('[Settings] Menunggu SyncModule siap...');
+                setTimeout(init, 300);
+                return;
+            }
+
+            stateManager = window.StateManager || null;
+            mqttManager = window.MqttManager || window.mqttManager || null;
+            syncModule = window.SyncModule || null;
 
             if (!stateManager) {
-                console.warn('StateManager tidak tersedia, gunakan fallback');
+                console.error('[Settings] StateManager tidak ditemukan!');
                 stateManager = {
-                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
-                    set: function(key, value) {
-                        window.__fallbackState = window.__fallbackState || {};
-                        window.__fallbackState[key] = value;
-                    },
-                    addListener: function() {}
+                    get: function() { return null; },
+                    set: function() {},
+                    addListener: function() {},
+                    update: function() {}
                 };
-                window.__fallbackState = { settings: {} };
             }
 
-            // Inisialisasi Core jika belum
-            if (typeof Core.init === 'function' && !Core.initialized) {
-                Core.init({
-                    config: {
-                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
-                    },
-                    telegram: {
-                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
-                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
-                    }
-                });
-                // Re-get managers setelah init
-                stateManager = Core.getStateManager ? Core.getStateManager() : stateManager;
-                mqttManager = Core.getMqttManager ? Core.getMqttManager() : mqttManager;
-            }
+            console.log('[Settings] stateManager:', stateManager);
+            console.log('[Settings] mqttManager:', mqttManager);
+            console.log('[Settings] syncModule:', syncModule);
 
-            // Subscribe ke perubahan state via StateManager
-            if (stateManager && typeof stateManager.addListener === 'function') {
-                stateManager.addListener('*', function(key, value, oldValue) {
-                    if (key === 'settings') {
-                        updateUIFromSettings();
-                    }
-                    updateStatusIndicators();
-                });
-            }
-
-            // Gunakan SyncModule untuk sinkronisasi antar user
-            if (syncModule && typeof syncModule.subscribeState === 'function') {
-                syncModule.subscribeState(mqttManager);
-                syncModule.setOnStateChange(function(state) {
-                    if (state.settings) {
-                        updateUIFromSettings();
-                    }
-                    updateStatusIndicators();
-                });
-            }
-
-            // Load settings from state
+            // Load settings dari state
             var settings = getSettings();
             if (Object.keys(settings).length === 0) {
-                // Inisialisasi dengan default
                 setSettings(DEFAULT_SETTINGS, { publish: false, sync: false });
             }
             updateUIFromSettings();
 
-            // Update status indikator awal
-            updateStatusIndicators();
-
             // Sembunyikan loading
             var loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
-                setTimeout(function() { loadingScreen.classList.add('hide'); }, 800);
+                setTimeout(function() { loadingScreen.classList.add('hide'); }, 500);
             }
 
-            // Auto refresh status
-            setInterval(function() {
+            // POLLING SETIAP 1 DETIK – update status indikator
+            if (uiUpdateInterval) clearInterval(uiUpdateInterval);
+            uiUpdateInterval = setInterval(function() {
                 updateStatusIndicators();
-            }, 10000);
+            }, 1000);
 
-            showToast('⚙ Settings siap dengan Core System', 'success');
-            console.log('⚙ Settings menggunakan Core System v3.0');
+            // Update status pertama
+            updateStatusIndicators();
+
+            showToast('⚙ Settings siap', 'success');
+            console.log('⚙ Settings FINAL siap dengan polling 1 detik');
+
+            initialized = true;
         }
 
         // =============================================================
@@ -1744,15 +1629,22 @@
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            setTimeout(init, 300);
+            setTimeout(init, 200);
         }
+
+        // Fallback: hilangkan loading screen setelah 3 detik
+        setTimeout(function() {
+            var ls = document.getElementById('loading-screen');
+            if (ls) ls.classList.add('hide');
+        }, 3000);
 
         // Ekspos untuk debugging
         window.__settings = getSettings;
         window.__publishSettings = publishSettings;
         window.__stateManager = stateManager;
         window.__syncModule = syncModule;
-        console.log('⚙ Settings siap, menunggu Core System...');
+
+        console.log('⚙ Settings siap, menunggu inisialisasi...');
     </script>
 
 </body>

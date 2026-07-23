@@ -9,16 +9,16 @@
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js">
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js">
     </script>
 
     <!-- ============================================================ -->
     <!--  CORE SYSTEM – WAJIB dimuat sebelum sync.js dan modul lain   -->
-    <!--  core.js menyediakan StateManager, MqttManager, CONFIG, dll  -->
     <!-- ============================================================ -->
     <script src="assets/js/core.js"></script>
     <script src="assets/js/sync.js"></script>
-    <!-- mqtt-config.js TIDAK diperlukan karena core.js sudah mengekspos semua -->
 
     <style>
         /* ===== RESET & BASE ===== */
@@ -284,51 +284,6 @@
             color: #2a9d8f;
         }
 
-        /* ===== HEALTH INDICATOR ===== */
-        .health-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 14px;
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 10px;
-            border-left: 3px solid #2a9d8f;
-            transition: all 0.2s;
-        }
-        .health-item .label {
-            font-size: 13px;
-            font-weight: 500;
-        }
-        .health-item .status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-        }
-        .health-item .status .dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            display: inline-block;
-        }
-        .health-item .status .dot.green {
-            background: #2a9d8f;
-            box-shadow: 0 0 12px rgba(42, 157, 143, 0.4);
-        }
-        .health-item .status .dot.yellow {
-            background: #f1c40f;
-            box-shadow: 0 0 12px rgba(241, 196, 15, 0.3);
-        }
-        .health-item .status .dot.red {
-            background: #e74c3c;
-            box-shadow: 0 0 12px rgba(231, 76, 60, 0.4);
-        }
-        .health-item .status .time {
-            color: #6a7288;
-            font-size: 11px;
-            margin-left: 4px;
-        }
-
         /* ===== TOAST ===== */
         .toast-container {
             position: fixed;
@@ -419,7 +374,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            transition: opacity 0.6s, visibility 0.6s;
+            transition: opacity 0.4s, visibility 0.4s;
         }
         #loading-screen.hide {
             opacity: 0;
@@ -443,44 +398,6 @@
             to {
                 transform: rotate(360deg);
             }
-        }
-
-        /* ===== BUTTON ===== */
-        .btn {
-            padding: 10px 20px;
-            border-radius: 10px;
-            border: none;
-            font-weight: 600;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.25s;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .btn-primary {
-            background: #2a9d8f;
-            color: #fff;
-        }
-        .btn-primary:hover {
-            background: #21867a;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 16px rgba(42, 157, 143, 0.3);
-        }
-        .btn-secondary {
-            background: rgba(255, 255, 255, 0.06);
-            color: #e8edf5;
-        }
-        .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.12);
-        }
-        .btn-danger {
-            background: #e74c3c;
-            color: #fff;
-        }
-        .btn-danger:hover {
-            background: #c0392b;
-            transform: translateY(-1px);
         }
 
         /* ===== RESPONSIVE ===== */
@@ -527,10 +444,6 @@
             .card {
                 padding: 14px;
             }
-            .health-item {
-                padding: 8px 10px;
-                font-size: 12px;
-            }
         }
         @media (max-width: 480px) {
             .topbar .left h1 {
@@ -542,10 +455,6 @@
             }
             .card {
                 padding: 12px;
-            }
-            .btn {
-                padding: 8px 14px;
-                font-size: 12px;
             }
         }
 
@@ -576,12 +485,6 @@
         }
         .gap-6 {
             gap: 24px;
-        }
-        .grid-cols-1 {
-            grid-template-columns: 1fr;
-        }
-        .grid-cols-2 {
-            grid-template-columns: 1fr 1fr;
         }
         .mt-2 {
             margin-top: 8px;
@@ -622,6 +525,9 @@
         .text-xl {
             font-size: 20px;
         }
+        .text-2xl {
+            font-size: 24px;
+        }
         .font-medium {
             font-weight: 500;
         }
@@ -659,6 +565,12 @@
             }
             .lg\:grid-cols-4 {
                 grid-template-columns: 1fr 1fr 1fr 1fr;
+            }
+            .lg\:col-span-2 {
+                grid-column: span 2;
+            }
+            .lg\:col-span-3 {
+                grid-column: span 3;
             }
         }
 
@@ -707,15 +619,6 @@
         .bg-red-500\/20 {
             background: rgba(231, 76, 60, 0.2);
         }
-        .bg-yellow-500\/20 {
-            background: rgba(241, 196, 15, 0.2);
-        }
-        .border-green-500\/20 {
-            border-color: rgba(42, 157, 143, 0.2);
-        }
-        .border-red-500\/20 {
-            border-color: rgba(231, 76, 60, 0.2);
-        }
         .hover\:bg-white\/10:hover {
             background: rgba(255, 255, 255, 0.10);
         }
@@ -736,30 +639,74 @@
             display: none !important;
         }
 
-        /* Error log styling */
-        .error-log-item {
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            background: rgba(255, 255, 255, 0.02);
-            border-left: 3px solid transparent;
-            margin-bottom: 4px;
+        /* Self Monitoring specific */
+        .health-ring {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: 700;
+            margin: 0 auto;
+            border: 6px solid #2a9d8f;
+            box-shadow: 0 0 40px rgba(42, 157, 143, 0.15);
         }
-        .error-log-item.error {
-            border-left-color: #e74c3c;
+
+        .component-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.02);
+            border-left: 3px solid #2a9d8f;
+            margin-bottom: 4px;
         }
-        .error-log-item.warning {
-            border-left-color: #f1c40f;
+        .component-status .label {
+            font-size: 13px;
+            color: #e8edf5;
         }
-        .error-log-item.info {
-            border-left-color: #3498db;
+        .component-status .status {
+            font-size: 12px;
+            font-weight: 500;
         }
-        .error-log-item .time {
-            color: #6a7288;
-            font-size: 11px;
+        .component-status .status.online {
+            color: #2a9d8f;
+        }
+        .component-status .status.offline {
+            color: #e74c3c;
+        }
+        .component-status .status.warning {
+            color: #f1c40f;
+        }
+        .component-status .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+        .component-status .dot.online {
+            background: #2a9d8f;
+        }
+        .component-status .dot.offline {
+            background: #e74c3c;
+        }
+        .component-status .dot.warning {
+            background: #f1c40f;
+        }
+
+        .uptime-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #2a9d8f;
+        }
+        .uptime-value .unit {
+            font-size: 16px;
+            font-weight: 400;
+            color: #8892a8;
         }
     </style>
 </head>
@@ -802,8 +749,8 @@
                     <i class="fas fa-bars"></i>
                 </button>
                 <h1>
-                    🩺 Self Monitoring
-                    <small>— Deteksi Dini &amp; Kesehatan Sistem</small>
+                    💚 Self Monitoring
+                    <small>— Status Kesehatan Sistem</small>
                 </h1>
             </div>
             <div class="right">
@@ -831,84 +778,106 @@
             <span class="current">Self Monitoring</span>
         </div>
 
-        <!-- ===== SUMMARY CARDS ===== -->
+        <!-- ===== HEALTH SUMMARY ===== -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div class="card fade-in-up" style="animation-delay:0.05s; border-left: 4px solid #2a9d8f;">
+
+            <!-- Health Ring -->
+            <div class="card fade-in-up" style="animation-delay:0.05s;">
                 <div class="card-title">
-                    <span><i class="fas fa-heartbeat mr-2"></i>Health Score</span>
+                    <span><i class="fas fa-medkit mr-2"></i>System Health</span>
+                    <span class="text-xs text-gray-400" id="healthLabel">Baik</span>
                 </div>
-                <div class="text-3xl font-bold text-green-400" id="healthScore">--%</div>
-                <div class="text-xs text-gray-400 mt-1">Terakhir update: <span id="healthLastUpdate">--</span></div>
+                <div class="health-ring" id="healthRing">
+                    <span id="healthValue">--%</span>
+                </div>
+                <div class="text-center mt-3">
+                    <span class="text-sm text-gray-400">Status: </span>
+                    <span class="text-sm font-semibold text-green-400" id="healthStatus">Online</span>
+                </div>
             </div>
-            <div class="card fade-in-up" style="animation-delay:0.10s; border-left: 4px solid #f1c40f;">
+
+            <!-- Uptime & Info -->
+            <div class="card fade-in-up" style="animation-delay:0.10s;">
                 <div class="card-title">
-                    <span><i class="fas fa-exclamation-triangle mr-2"></i>Alarm Aktif</span>
+                    <span><i class="fas fa-clock mr-2"></i>Uptime</span>
                 </div>
-                <div class="text-3xl font-bold text-yellow-400" id="activeAlarmCount">0</div>
-                <div class="text-xs text-gray-400 mt-1">Total error: <span id="totalErrorCount">0</span></div>
+                <div class="uptime-value" id="uptimeDisplay">
+                    -- <span class="unit">detik</span>
+                </div>
+                <div class="mt-3 text-sm text-gray-400">
+                    <div class="flex justify-between">
+                        <span>Data terakhir:</span>
+                        <span id="lastUpdate" class="text-white">--</span>
+                    </div>
+                    <div class="flex justify-between mt-1">
+                        <span>Alarm aktif:</span>
+                        <span id="alarmCount" class="text-white">0</span>
+                    </div>
+                    <div class="flex justify-between mt-1">
+                        <span>Error:</span>
+                        <span id="errorCount" class="text-white">0</span>
+                    </div>
+                </div>
             </div>
-            <div class="card fade-in-up" style="animation-delay:0.15s; border-left: 4px solid #3498db;">
+
+            <!-- Quick Stats -->
+            <div class="card fade-in-up" style="animation-delay:0.15s;">
                 <div class="card-title">
-                    <span><i class="fas fa-clock mr-2"></i>Last Check</span>
+                    <span><i class="fas fa-chart-simple mr-2"></i>Statistik</span>
                 </div>
-                <div class="text-2xl font-bold text-blue-400" id="lastCheckTime">--</div>
-                <div class="text-xs text-gray-400 mt-1">Interval: 10 detik</div>
+                <div class="grid grid-cols-2 gap-2 text-center">
+                    <div>
+                        <div class="text-xs text-gray-400">Suhu</div>
+                        <div class="text-xl font-bold text-green-400" id="statTemp">-- °C</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-400">Kelembaban</div>
+                        <div class="text-xl font-bold text-blue-400" id="statHum">-- %</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-400">NH₃</div>
+                        <div class="text-xl font-bold text-yellow-400" id="statNh3">-- ppm</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-400">Mode</div>
+                        <div class="text-xl font-bold text-white" id="statMode">--</div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- ===== COMPONENT STATUS GRID ===== -->
-        <div class="card mb-6 fade-in-up" style="animation-delay:0.20s;">
+        <!-- ===== COMPONENT STATUS ===== -->
+        <div class="card fade-in-up mb-6" style="animation-delay:0.20s;">
             <div class="card-title">
-                <span><i class="fas fa-microchip mr-2"></i>Status Komponen</span>
-                <button class="btn btn-secondary text-xs" id="refreshStatusBtn"><i class="fas fa-sync"></i> Refresh</button>
+                <span><i class="fas fa-server mr-2"></i>Status Komponen</span>
+                <span class="text-xs text-gray-400" id="componentCount">0 komponen</span>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3" id="componentStatusGrid">
-                <!-- Diisi oleh JS -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2" id="componentList">
+                <!-- Diisi oleh JavaScript -->
             </div>
         </div>
 
-        <!-- ===== ERROR LOG & ALARM ===== -->
+        <!-- ===== LAST HEARTBEAT & ACTIVITY ===== -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <!-- Error Log -->
             <div class="card fade-in-up" style="animation-delay:0.25s;">
                 <div class="card-title">
-                    <span><i class="fas fa-list-alt mr-2"></i>Error Log</span>
-                    <span class="text-xs text-gray-400" id="errorLogCount">0</span>
+                    <span><i class="fas fa-heartbeat mr-2"></i>Heartbeat Terakhir</span>
                 </div>
-                <div id="errorLogList" style="max-height:220px; overflow-y:auto;">
-                    <div class="text-center text-gray-500 text-sm py-4">Tidak ada error</div>
+                <div class="text-center py-4">
+                    <div class="text-2xl font-bold text-green-400" id="lastHeartbeat">--</div>
+                    <div class="text-sm text-gray-400 mt-1">Dari ESP32</div>
                 </div>
             </div>
 
-            <!-- Alarm Aktif -->
             <div class="card fade-in-up" style="animation-delay:0.30s;">
                 <div class="card-title">
-                    <span><i class="fas fa-bell mr-2"></i>Alarm Aktif</span>
-                    <span class="text-xs text-gray-400" id="alarmActiveCount">0</span>
+                    <span><i class="fas fa-activity mr-2"></i>Aktivitas Terakhir</span>
                 </div>
-                <div id="alarmActiveList" style="max-height:220px; overflow-y:auto;">
-                    <div class="text-center text-gray-500 text-sm py-4">Tidak ada alarm aktif</div>
+                <div class="text-center py-4">
+                    <div class="text-2xl font-bold text-blue-400" id="lastActivity">--</div>
+                    <div class="text-sm text-gray-400 mt-1">Update data sensor</div>
                 </div>
             </div>
-        </div>
-
-        <!-- ===== TEST & ACTION BUTTONS ===== -->
-        <div class="card fade-in-up" style="animation-delay:0.35s;">
-            <div class="card-title">
-                <span><i class="fas fa-flask mr-2"></i>Self Monitoring Test</span>
-            </div>
-            <div class="flex flex-wrap gap-3">
-                <button class="btn btn-primary" id="testSelfMonitorBtn">
-                    <i class="fas fa-play"></i> Test Self Monitoring
-                </button>
-                <button class="btn btn-secondary" id="simulateErrorBtn">
-                    <i class="fas fa-bug"></i> Simulasi Error Sensor
-                </button>
-                <button class="btn btn-secondary" id="clearLogsBtn">
-                    <i class="fas fa-eraser"></i> Hapus Log
-                </button>
-            </div>
-            <p class="text-xs text-gray-500 mt-2">Test akan memeriksa semua komponen dan menampilkan hasil. Simulasi error akan membuat error palsu untuk menguji alarm.</p>
         </div>
 
         <!-- ===== FOOTER ===== -->
@@ -921,10 +890,10 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- ============================================================ -->
-    <!-- ===== JAVASCRIPT ===== -->
+    <!-- ===== JAVASCRIPT (PERBAIKAN FINAL) ===== -->
     <script>
         // =============================================================
-        // 1. KONFIGURASI UNTUK CORE
+        // 1. KONFIGURASI
         // =============================================================
         var APP_CONFIG = {
             SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA/exec',
@@ -933,47 +902,28 @@
         };
 
         // =============================================================
-        // 2. STATE REFERENCE (dari Core)
+        // 2. REFERENSI GLOBAL
         // =============================================================
         var stateManager = null;
         var mqttManager = null;
         var syncModule = null;
         var initialized = false;
-
-        // Component definitions (label only, status from Core)
-        var COMPONENT_KEYS = [
-            'esp32', 'wifi', 'mqtt', 'spreadsheet',
-            'sht31', 'mq135', 'peltier', 'fan', 'coolFan',
-            'currentSense', 'i2c', 'adc', 'watchdog', 'autoReconnect'
-        ];
-        var COMPONENT_LABELS = {
-            esp32: 'ESP32-C3',
-            wifi: 'WiFi',
-            mqtt: 'MQTT Broker',
-            spreadsheet: 'Spreadsheet',
-            sht31: 'Sensor SHT31-D',
-            mq135: 'Sensor MQ-135',
-            peltier: 'Modul Peltier',
-            fan: 'Kipas Sirkulasi',
-            coolFan: 'Kipas Pendingin',
-            currentSense: 'Current Sense Peltier',
-            i2c: 'Bus I²C',
-            adc: 'ADC ESP32',
-            watchdog: 'Watchdog Timer',
-            autoReconnect: 'Auto Reconnect'
-        };
+        var uiUpdateInterval = null;
 
         // =============================================================
-        // 3. UTILITY FUNCTIONS
+        // 3. UTILITY
         // =============================================================
         function formatTime(d) {
             d = d || new Date();
             return d.toLocaleTimeString('id-ID', { hour12: false });
         }
 
-        function randomBetween(min, max) {
-            return Math.random() * (max - min) + min;
+        function formatDate(d) {
+            d = d || new Date();
+            return d.toLocaleString('id-ID', { hour12: false });
         }
+
+        function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
 
         function safeNumber(value, fallback) {
             fallback = fallback || 0;
@@ -981,8 +931,16 @@
             return Number.isFinite(num) ? num : fallback;
         }
 
+        function formatValue(value, digits) {
+            digits = digits || 1;
+            if (value === null || value === undefined || Number.isNaN(Number(value))) {
+                return '---';
+            }
+            return Number(value).toFixed(digits);
+        }
+
         // =============================================================
-        // 4. TOAST & UI HELPERS
+        // 4. TOAST
         // =============================================================
         function showToast(message, type, duration) {
             type = type || 'info';
@@ -1007,8 +965,20 @@
             }, duration);
         }
 
+        function addNotification(message, type) {
+            type = type || 'info';
+            if (stateManager && typeof stateManager.update === 'function') {
+                var notifs = stateManager.get('notifications') || [];
+                notifs.unshift({ message: message, type: type, time: formatTime() });
+                if (notifs.length > 50) notifs.pop();
+                stateManager.set('notifications', notifs, { publish: true, sync: true });
+            } else {
+                showToast(message, type);
+            }
+        }
+
         // =============================================================
-        // 5. GET/SET STATE FROM CORE
+        // 5. STATE HELPERS
         // =============================================================
         function getState(key) {
             if (stateManager) {
@@ -1035,79 +1005,192 @@
             }
         }
 
-        function getComponents() {
-            return getState('components') || {};
-        }
-
-        function setComponents(components) {
-            setState('components', components, { publish: true, sync: true });
-        }
-
-        function getHealth() {
-            return getState('health') || 97;
-        }
-
-        function setHealth(health) {
-            setState('health', health, { publish: true, sync: true });
-        }
-
-        function getAlarms() {
-            return getState('alarms') || [];
-        }
-
-        function setAlarms(alarms) {
-            setState('alarms', alarms, { publish: true, sync: true });
-        }
-
-        function getErrors() {
-            return getState('errors') || [];
-        }
-
-        function setErrors(errors) {
-            setState('errors', errors, { publish: true, sync: true });
-        }
-
         // =============================================================
-        // 6. ADD ERROR & ALARM
+        // 6. UI UPDATE – DIPANGGIL SETIAP DETIK
         // =============================================================
-        function addError(message, type) {
-            type = type || 'error';
-            var errors = getErrors();
-            errors.unshift({ message: message, type: type, time: formatTime() });
-            if (errors.length > 100) errors.pop();
-            setErrors(errors);
-            updateErrorLogUI();
-        }
+        function updateUI() {
+            // Ambil state dari SyncModule atau StateManager
+            var state;
+            if (syncModule && typeof syncModule.getState === 'function') {
+                state = syncModule.getState();
+            } else if (stateManager) {
+                if (typeof stateManager.getState === 'function') {
+                    state = stateManager.getState();
+                } else {
+                    state = {
+                        health: stateManager.get('health'),
+                        uptime: stateManager.get('uptime'),
+                        temperature: stateManager.get('temperature'),
+                        humidity: stateManager.get('humidity'),
+                        nh3: stateManager.get('nh3'),
+                        mode: stateManager.get('mode'),
+                        components: stateManager.get('components'),
+                        alarms: stateManager.get('alarms'),
+                        errors: stateManager.get('errors'),
+                        lastHeartbeat: stateManager.get('lastHeartbeat'),
+                        lastStateUpdate: stateManager.get('lastStateUpdate'),
+                        isMqttConnected: stateManager.get('isMqttConnected'),
+                        wifiStatus: stateManager.get('wifiStatus'),
+                        isSpreadsheetConnected: stateManager.get('isSpreadsheetConnected'),
+                        alarmCount: stateManager.get('alarmCount'),
+                        errorCount: stateManager.get('errorCount'),
+                    };
+                }
+            } else {
+                return;
+            }
 
-        function addAlarm(message, active) {
-            active = (active !== undefined) ? active : true;
-            var alarms = getAlarms();
-            var existing = null;
-            for (var i = 0; i < alarms.length; i++) {
-                if (alarms[i].message === message) {
-                    existing = alarms[i];
-                    break;
+            if (!state) return;
+
+            var health = state.health || 100;
+            var uptime = state.uptime || 0;
+            var temp = state.temperature;
+            var hum = state.humidity;
+            var nh3 = state.nh3;
+            var mode = state.mode || 'AUTO';
+            var components = state.components || {};
+            var alarms = state.alarms || [];
+            var errors = state.errors || [];
+            var lastHeartbeat = state.lastHeartbeat;
+            var lastStateUpdate = state.lastStateUpdate;
+            var mqttConnected = state.isMqttConnected || false;
+            var wifiConnected = state.wifiStatus === 'online' || true;
+            var sheetConnected = state.isSpreadsheetConnected || false;
+            var alarmCount = state.alarmCount || 0;
+            var errorCount = state.errorCount || 0;
+
+            // Log setiap 10 detik
+            if (Math.floor(Date.now() / 10000) !== Math.floor((Date.now() - 10000) / 10000)) {
+                console.log('[SelfMonitor] State values:', { health, uptime, temp, hum, nh3, mode });
+            }
+
+            // ---- Health Ring ----
+            var healthVal = Math.round(clamp(safeNumber(health, 0), 0, 100));
+            var healthValue = document.getElementById('healthValue');
+            if (healthValue) healthValue.textContent = healthVal + '%';
+            var ring = document.getElementById('healthRing');
+            var label = document.getElementById('healthLabel');
+            var statusText = document.getElementById('healthStatus');
+            if (ring) {
+                if (healthVal >= 80) {
+                    ring.style.borderColor = '#2a9d8f';
+                    ring.style.boxShadow = '0 0 50px rgba(42,157,143,0.2)';
+                    if (label) { label.textContent = 'Baik';
+                        label.className = 'text-xs text-green-400'; }
+                    if (statusText) { statusText.textContent = 'Online';
+                        statusText.className = 'text-sm font-semibold text-green-400'; }
+                } else if (healthVal >= 60) {
+                    ring.style.borderColor = '#f1c40f';
+                    ring.style.boxShadow = '0 0 50px rgba(241,196,15,0.2)';
+                    if (label) { label.textContent = 'Waspada';
+                        label.className = 'text-xs text-yellow-400'; }
+                    if (statusText) { statusText.textContent = 'Warning';
+                        statusText.className = 'text-sm font-semibold text-yellow-400'; }
+                } else {
+                    ring.style.borderColor = '#e74c3c';
+                    ring.style.boxShadow = '0 0 50px rgba(231,76,60,0.2)';
+                    if (label) { label.textContent = 'Kritis';
+                        label.className = 'text-xs text-red-400'; }
+                    if (statusText) { statusText.textContent = 'Offline';
+                        statusText.className = 'text-sm font-semibold text-red-400'; }
                 }
             }
-            if (existing) {
-                existing.active = active;
-                existing.timestamp = new Date();
-            } else {
-                alarms.unshift({ message: message, active: active, timestamp: new Date() });
-                if (alarms.length > 50) alarms.pop();
+
+            // ---- Uptime ----
+            var uptimeDisplay = document.getElementById('uptimeDisplay');
+            if (uptimeDisplay) {
+                var uptimeVal = Math.floor(safeNumber(uptime, 0));
+                if (uptimeVal > 86400) {
+                    var days = Math.floor(uptimeVal / 86400);
+                    var hours = Math.floor((uptimeVal % 86400) / 3600);
+                    uptimeDisplay.innerHTML = days + ' <span class="unit">hari</span> ' + hours +
+                        ' <span class="unit">jam</span>';
+                } else if (uptimeVal > 3600) {
+                    var hours = Math.floor(uptimeVal / 3600);
+                    var mins = Math.floor((uptimeVal % 3600) / 60);
+                    uptimeDisplay.innerHTML = hours + ' <span class="unit">jam</span> ' + mins +
+                        ' <span class="unit">menit</span>';
+                } else if (uptimeVal > 60) {
+                    var mins = Math.floor(uptimeVal / 60);
+                    var secs = uptimeVal % 60;
+                    uptimeDisplay.innerHTML = mins + ' <span class="unit">menit</span> ' + secs +
+                        ' <span class="unit">detik</span>';
+                } else {
+                    uptimeDisplay.innerHTML = uptimeVal + ' <span class="unit">detik</span>';
+                }
             }
-            setAlarms(alarms);
-            updateAlarmsUI();
-        }
 
-        // =============================================================
-        // 7. UI UPDATE FUNCTIONS
-        // =============================================================
-        function updateStatusIndicators() {
-            var mqttConnected = getState('isMqttConnected') || false;
-            var wifiConnected = getState('wifiStatus') === 'online' || true;
-            var sheetConnected = getState('isSpreadsheetConnected') || false;
+            // ---- Last update ----
+            var lastUpdate = document.getElementById('lastUpdate');
+            if (lastUpdate) {
+                lastUpdate.textContent = lastStateUpdate ? formatDate(new Date(lastStateUpdate)) : '--';
+            }
 
+            // ---- Alarm & Error count ----
+            var alarmCountEl = document.getElementById('alarmCount');
+            if (alarmCountEl) alarmCountEl.textContent = alarmCount;
+            var errorCountEl = document.getElementById('errorCount');
+            if (errorCountEl) errorCountEl.textContent = errorCount;
+
+            // ---- Stats ----
+            var statTemp = document.getElementById('statTemp');
+            if (statTemp) statTemp.textContent = (temp !== null && temp !== undefined) ? formatValue(temp, 1) + ' °C' :
+                '-- °C';
+            var statHum = document.getElementById('statHum');
+            if (statHum) statHum.textContent = (hum !== null && hum !== undefined) ? formatValue(hum, 1) + ' %' :
+                '-- %';
+            var statNh3 = document.getElementById('statNh3');
+            if (statNh3) statNh3.textContent = (nh3 !== null && nh3 !== undefined) ? formatValue(nh3, 1) + ' ppm' :
+                '-- ppm';
+            var statMode = document.getElementById('statMode');
+            if (statMode) statMode.textContent = mode;
+
+            // ---- Components ----
+            var componentList = document.getElementById('componentList');
+            var componentCount = document.getElementById('componentCount');
+            if (componentList) {
+                var compKeys = Object.keys(components);
+                if (componentCount) componentCount.textContent = compKeys.length + ' komponen';
+                if (compKeys.length === 0) {
+                    componentList.innerHTML =
+                        '<div class="text-gray-400 text-center py-4">Tidak ada data komponen</div>';
+                } else {
+                    var html = '';
+                    // Urutkan berdasarkan nama
+                    var sortedKeys = compKeys.sort();
+                    for (var i = 0; i < sortedKeys.length; i++) {
+                        var key = sortedKeys[i];
+                        var comp = components[key];
+                        var status = comp && comp.status ? comp.status : 'online';
+                        var label = comp && comp.label ? comp.label : key;
+                        var dotClass = status === 'online' ? 'online' : status === 'warning' ? 'warning' : 'offline';
+                        var statusClass = dotClass;
+                        var statusLabel = status === 'online' ? 'Online' : status === 'warning' ? 'Warning' :
+                            'Offline';
+                        html += '<div class="component-status">' +
+                            '<span class="label">' + label + '</span>' +
+                            '<span class="status ' + statusClass + '">' +
+                            '<span class="dot ' + dotClass + '"></span>' + statusLabel +
+                            '</span>' +
+                            '</div>';
+                    }
+                    componentList.innerHTML = html;
+                }
+            }
+
+            // ---- Last Heartbeat ----
+            var lastHb = document.getElementById('lastHeartbeat');
+            if (lastHb) {
+                lastHb.textContent = lastHeartbeat ? formatDate(new Date(lastHeartbeat)) : 'Belum ada';
+            }
+
+            // ---- Last Activity ----
+            var lastAct = document.getElementById('lastActivity');
+            if (lastAct) {
+                lastAct.textContent = lastStateUpdate ? formatDate(new Date(lastStateUpdate)) : 'Belum ada';
+            }
+
+            // ---- Status indicators ----
             var setDot = function(id, online) {
                 var el = document.getElementById(id);
                 if (el) { el.className = 'dot ' + (online ? 'online' : 'offline'); }
@@ -1117,151 +1200,8 @@
             setDot('sheetDot', sheetConnected);
         }
 
-        function updateComponentsUI() {
-            var grid = document.getElementById('componentStatusGrid');
-            var components = getComponents() || {};
-            var html = '';
-
-            for (var i = 0; i < COMPONENT_KEYS.length; i++) {
-                var key = COMPONENT_KEYS[i];
-                var comp = components[key] || { status: 'online', lastSeen: null };
-                var label = COMPONENT_LABELS[key] || key;
-
-                var statusMap = {
-                    online: { dot: 'green', text: 'Online', color: 'text-green-400' },
-                    offline: { dot: 'red', text: 'Offline', color: 'text-red-400' },
-                    warning: { dot: 'yellow', text: 'Warning', color: 'text-yellow-400' },
-                };
-                var s = statusMap[comp.status] || statusMap.online;
-                var lastSeen = comp.lastSeen ? formatTime(comp.lastSeen) : '--';
-                var borderColor = comp.status === 'online' ? '#2a9d8f' : comp.status === 'warning' ? '#f1c40f' : '#e74c3c';
-
-                html += '<div class="health-item" style="border-left-color: ' + borderColor + ';">' +
-                    '<span class="label">' + label + '</span>' +
-                    '<div class="status">' +
-                    '<span class="dot ' + s.dot + '"></span>' +
-                    '<span class="' + s.color + '">' + s.text + '</span>' +
-                    '<span class="time">' + lastSeen + '</span>' +
-                    '</div>' +
-                    '</div>';
-            }
-            grid.innerHTML = html;
-        }
-
-        function updateAlarmsUI() {
-            var alarms = getAlarms();
-            var active = alarms.filter(function(a) { return a.active; });
-            var container = document.getElementById('alarmActiveList');
-            var count = document.getElementById('alarmActiveCount');
-
-            count.textContent = active.length;
-            if (!active.length) {
-                container.innerHTML = '<div class="text-center text-gray-500 text-sm py-4">Tidak ada alarm aktif</div>';
-                return;
-            }
-            var html = '';
-            for (var i = 0; i < Math.min(active.length, 10); i++) {
-                var a = active[i];
-                var timeStr = a.timestamp ? formatTime(a.timestamp) : '--';
-                html += '<div class="health-item" style="border-left-color: #e74c3c; background: rgba(231,76,60,0.05);">' +
-                    '<span class="label"><i class="fas fa-exclamation-circle text-red-400 mr-2"></i>' + a.message +
-                    '</span>' +
-                    '<span class="status">' +
-                    '<span class="text-red-400 text-xs">AKTIF</span>' +
-                    '<span class="time">' + timeStr + '</span>' +
-                    '</span>' +
-                    '</div>';
-            }
-            container.innerHTML = html;
-        }
-
-        function updateErrorLogUI() {
-            var errors = getErrors();
-            var container = document.getElementById('errorLogList');
-            var count = document.getElementById('errorLogCount');
-
-            count.textContent = errors.length;
-            if (!errors.length) {
-                container.innerHTML = '<div class="text-center text-gray-500 text-sm py-4">Tidak ada error</div>';
-                return;
-            }
-            var html = '';
-            for (var i = 0; i < Math.min(errors.length, 20); i++) {
-                var e = errors[i];
-                html += '<div class="error-log-item ' + e.type + '">' +
-                    '<span>' + e.message + '</span>' +
-                    '<span class="time">' + e.time + '</span>' +
-                    '</div>';
-            }
-            container.innerHTML = html;
-        }
-
-        function updateSummaryUI() {
-            var health = Math.round(safeNumber(getHealth(), 100));
-            var healthScore = document.getElementById('healthScore');
-            if (healthScore) {
-                healthScore.textContent = health + '%';
-                healthScore.className = 'text-3xl font-bold ' + (health >= 80 ? 'text-green-400' : health >= 60 ?
-                    'text-yellow-400' : 'text-red-400');
-            }
-
-            var lastUpdate = getState('lastStateUpdate');
-            var healthLastUpdate = document.getElementById('healthLastUpdate');
-            if (healthLastUpdate) healthLastUpdate.textContent = lastUpdate ? formatTime(lastUpdate) : '--';
-
-            var alarms = getAlarms();
-            var activeAlarms = alarms.filter(function(a) { return a.active; }).length;
-            var activeAlarmCount = document.getElementById('activeAlarmCount');
-            if (activeAlarmCount) activeAlarmCount.textContent = activeAlarms;
-
-            var errors = getErrors();
-            var totalErrorCount = document.getElementById('totalErrorCount');
-            if (totalErrorCount) totalErrorCount.textContent = errors.length;
-
-            var lastCheckTime = document.getElementById('lastCheckTime');
-            if (lastCheckTime) lastCheckTime.textContent = lastUpdate ? formatTime(lastUpdate) : '--';
-        }
-
-        function updateAllUI() {
-            updateComponentsUI();
-            updateAlarmsUI();
-            updateErrorLogUI();
-            updateSummaryUI();
-            updateStatusIndicators();
-        }
-
         // =============================================================
-        // 8. RUN SELF TEST
-        // =============================================================
-        function runSelfTest() {
-            showToast('🔄 Menjalankan self monitoring test...', 'info');
-
-            var components = getComponents() || {};
-            var passed = 0;
-            var failed = 0;
-
-            for (var key in components) {
-                if (components[key] && components[key].status === 'online') passed++;
-                else failed++;
-            }
-
-            addError('Self test selesai: ' + passed + ' komponen OK, ' + failed + ' komponen bermasalah', 'info');
-
-            if (failed === 0) {
-                showToast('✅ Self test: Semua komponen normal!', 'success');
-            } else {
-                showToast('⚠️ Self test: ' + failed + ' komponen bermasalah', 'warning');
-            }
-
-            var totalComps = Object.keys(components).length || 1;
-            var healthPct = Math.round((passed / totalComps) * 100);
-            setHealth(Math.min(healthPct + 5, 100));
-
-            updateAllUI();
-        }
-
-        // =============================================================
-        // 9. CLOCK & SIDEBAR
+        // 7. CLOCK & SIDEBAR
         // =============================================================
         function updateClock() {
             document.getElementById('clock').textContent = formatTime();
@@ -1281,152 +1221,69 @@
         });
 
         // =============================================================
-        // 10. EVENT LISTENERS
-        // =============================================================
-        document.getElementById('testSelfMonitorBtn').addEventListener('click', runSelfTest);
-
-        document.getElementById('simulateErrorBtn').addEventListener('click', function() {
-            var errors = [
-                'Sensor SHT31 timeout',
-                'ADC MQ135 nilai di luar batas',
-                'Peltier current sense abnormal',
-                'I²C bus error',
-                'WiFi connection lost',
-                'MQTT broker unreachable',
-            ];
-            var msg = errors[Math.floor(Math.random() * errors.length)];
-            addError(msg, 'error');
-            addAlarm(msg, true);
-            // Kurangi health sedikit
-            var health = getHealth();
-            setHealth(Math.max(health - randomBetween(2, 5), 70));
-            showToast('⚠️ Simulasi error: ' + msg, 'error');
-            updateAllUI();
-        });
-
-        document.getElementById('clearLogsBtn').addEventListener('click', function() {
-            setErrors([]);
-            setAlarms([]);
-            updateErrorLogUI();
-            updateAlarmsUI();
-            showToast('Log dan alarm berhasil dihapus', 'success');
-        });
-
-        document.getElementById('refreshStatusBtn').addEventListener('click', runSelfTest);
-
-        // =============================================================
-        // 11. INITIALIZATION
+        // 8. INITIALIZATION (FINAL)
         // =============================================================
         function init() {
-            if (initialized) return;
-            initialized = true;
+            console.log('[SelfMonitor] init called');
 
-            // Tunggu Core siap
-            if (typeof Core === 'undefined' || !Core.initialized) {
-                setTimeout(init, 500);
+            if (initialized) {
+                console.log('[SelfMonitor] Already initialized');
                 return;
             }
 
-            stateManager = Core.getStateManager ? Core.getStateManager() : null;
-            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
-            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+            // Tunggu Core dan Sync siap
+            if (typeof window.SyncModule === 'undefined') {
+                console.log('[SelfMonitor] Menunggu SyncModule siap...');
+                setTimeout(init, 300);
+                return;
+            }
+
+            stateManager = window.StateManager || null;
+            mqttManager = window.MqttManager || window.mqttManager || null;
+            syncModule = window.SyncModule || null;
 
             if (!stateManager) {
-                console.warn('StateManager tidak tersedia, gunakan fallback');
+                console.error('[SelfMonitor] StateManager tidak ditemukan!');
                 stateManager = {
-                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
-                    set: function(key, value) {
-                        window.__fallbackState = window.__fallbackState || {};
-                        window.__fallbackState[key] = value;
-                    },
-                    addListener: function() {}
-                };
-                // Setup fallback components
-                var fallbackComponents = {};
-                for (var i = 0; i < COMPONENT_KEYS.length; i++) {
-                    fallbackComponents[COMPONENT_KEYS[i]] = { status: 'online', lastSeen: new Date() };
-                }
-                window.__fallbackState = {
-                    health: 97,
-                    components: fallbackComponents,
-                    alarms: [],
-                    errors: [],
-                    lastStateUpdate: new Date()
+                    get: function() { return null; },
+                    set: function() {},
+                    addListener: function() {},
+                    update: function() {}
                 };
             }
 
-            // Inisialisasi Core jika belum
-            if (typeof Core.init === 'function' && !Core.initialized) {
-                Core.init({
-                    config: {
-                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
-                    },
-                    telegram: {
-                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
-                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
-                    }
-                });
-            }
-
-            // Subscribe ke perubahan state via StateManager
-            if (stateManager && typeof stateManager.addListener === 'function') {
-                stateManager.addListener('*', function(key, value, oldValue) {
-                    updateAllUI();
-                });
-            }
-
-            // Gunakan SyncModule untuk sinkronisasi antar user
-            if (syncModule && typeof syncModule.subscribeState === 'function') {
-                syncModule.subscribeState(mqttManager);
-                syncModule.setOnStateChange(function(state) {
-                    updateAllUI();
-                });
-            }
-
-            // Pastikan komponen memiliki status default
-            var components = getComponents() || {};
-            var needsUpdate = false;
-            for (var j = 0; j < COMPONENT_KEYS.length; j++) {
-                var key = COMPONENT_KEYS[j];
-                if (!components[key]) {
-                    components[key] = { status: 'online', lastSeen: new Date() };
-                    needsUpdate = true;
-                }
-            }
-            if (needsUpdate) {
-                setComponents(components);
-            }
-
-            // Update UI pertama kali
-            updateAllUI();
+            console.log('[SelfMonitor] stateManager:', stateManager);
+            console.log('[SelfMonitor] mqttManager:', mqttManager);
+            console.log('[SelfMonitor] syncModule:', syncModule);
 
             // Sembunyikan loading
             var loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
-                setTimeout(function() { loadingScreen.classList.add('hide'); }, 800);
+                setTimeout(function() { loadingScreen.classList.add('hide'); }, 500);
             }
 
-            // Update status periodik
-            setInterval(function() {
-                updateStatusIndicators();
-            }, 10000);
+            // POLLING SETIAP 1 DETIK
+            if (uiUpdateInterval) clearInterval(uiUpdateInterval);
+            uiUpdateInterval = setInterval(function() {
+                updateUI();
+            }, 1000);
 
-            setTimeout(function() {
-                showToast('Self Monitoring siap dengan Core System', 'success');
-                // Jalankan test otomatis pertama
-                setTimeout(runSelfTest, 1500);
-            }, 1200);
+            // Update pertama
+            setTimeout(updateUI, 100);
 
-            console.log('🩺 Self Monitoring menggunakan Core System v3.0');
+            addNotification('Self Monitoring siap', 'success');
+            console.log('💚 Self Monitoring FINAL siap dengan polling 1 detik');
+
+            initialized = true;
         }
 
         // =============================================================
-        // 12. START
+        // 9. START
         // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            setTimeout(init, 300);
+            setTimeout(init, 200);
         }
 
         // Fallback: hilangkan loading screen setelah 3 detik
@@ -1439,10 +1296,9 @@
         window.__stateManager = stateManager;
         window.__mqttManager = mqttManager;
         window.__syncModule = syncModule;
-        window.__runSelfTest = runSelfTest;
-        window.__addError = addError;
-        window.__addAlarm = addAlarm;
-        console.log('🩺 Self Monitoring siap, menunggu Core System...');
+        window.__updateUI = updateUI;
+
+        console.log('💚 Self Monitoring siap, menunggu inisialisasi...');
     </script>
 
 </body>

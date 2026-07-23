@@ -16,11 +16,9 @@
 
     <!-- ============================================================ -->
     <!--  CORE SYSTEM – WAJIB dimuat sebelum sync.js dan modul lain   -->
-    <!--  core.js menyediakan StateManager, MqttManager, CONFIG, dll  -->
     <!-- ============================================================ -->
     <script src="assets/js/core.js"></script>
     <script src="assets/js/sync.js"></script>
-    <!-- mqtt-config.js TIDAK diperlukan karena core.js sudah mengekspos semua -->
 
     <style>
         /* ===== RESET & BASE ===== */
@@ -1056,10 +1054,10 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- ============================================================ -->
-    <!-- ===== JAVASCRIPT ===== -->
+    <!-- ===== JAVASCRIPT (PERBAIKAN FINAL) ===== -->
     <script>
         // =============================================================
-        // 1. KONFIGURASI UNTUK CORE
+        // 1. KONFIGURASI
         // =============================================================
         var APP_CONFIG = {
             SPREADSHEET_API: 'https://script.google.com/macros/s/AKfycbzju3OUArlxEQReHnDWdPNA4A7Sc3PZ4FO7t5DFMH3HEMnkZ_RH2bobso40_yKh4eYqPA/exec',
@@ -1068,7 +1066,7 @@
         };
 
         // =============================================================
-        // 2. STATE REFERENCE (dari Core)
+        // 2. REFERENSI GLOBAL
         // =============================================================
         var stateManager = null;
         var mqttManager = null;
@@ -1076,10 +1074,10 @@
         var chart = null;
         var chartData = { labels: [], kp: [], ki: [], kd: [], output: [], error: [] };
         var initialized = false;
-        var updateInterval = null;
+        var uiUpdateInterval = null;
 
         // =============================================================
-        // 3. UTILITY FUNCTIONS
+        // 3. UTILITY
         // =============================================================
         function formatTime(d) {
             d = d || new Date();
@@ -1103,7 +1101,7 @@
         }
 
         // =============================================================
-        // 4. TOAST & UI HELPERS
+        // 4. TOAST
         // =============================================================
         function showToast(message, type, duration) {
             type = type || 'info';
@@ -1141,7 +1139,7 @@
         }
 
         // =============================================================
-        // 5. GET STATE FROM CORE
+        // 5. STATE HELPERS
         // =============================================================
         function getState(key) {
             if (stateManager) {
@@ -1169,7 +1167,7 @@
         }
 
         // =============================================================
-        // 6. PUBLISH VIA CORE
+        // 6. PUBLISH VIA MQTT
         // =============================================================
         function publishFuzzyStatus() {
             var data = {
@@ -1186,11 +1184,12 @@
                 mfDelta: getState('mfDelta') || [],
                 mfOutput: getState('mfOutput') || [],
             };
-            if (mqttManager && typeof mqttManager.publish === 'function') {
-                mqttManager.publish('fuzzy/status', data);
+            var target = mqttManager || window.mqttManager;
+            if (target && typeof target.publish === 'function') {
+                target.publish('fuzzy/status', data);
             }
             if (syncModule && typeof syncModule.updateLocalState === 'function') {
-                syncModule.updateLocalState(data, mqttManager);
+                syncModule.updateLocalState(data, target);
             }
         }
 
@@ -1202,51 +1201,85 @@
                 setpointTemp: getState('setpointTemp') || 27.5,
                 setpointHum: getState('setpointHum') || 75,
             };
-            if (mqttManager && typeof mqttManager.publish === 'function') {
-                mqttManager.publish('setting/update', data);
+            var target = mqttManager || window.mqttManager;
+            if (target && typeof target.publish === 'function') {
+                target.publish('setting/update', data);
             }
             if (syncModule && typeof syncModule.updateLocalState === 'function') {
-                syncModule.updateLocalState(data, mqttManager);
+                syncModule.updateLocalState(data, target);
             }
         }
 
         // =============================================================
-        // 7. UI UPDATE FUNCTIONS
+        // 7. UI UPDATE – DIPANGGIL SETIAP DETIK
         // =============================================================
-        function updateStatusIndicators() {
-            var mqttConnected = getState('isMqttConnected') || false;
-            var wifiConnected = getState('wifiStatus') === 'online' || true;
-            var sheetConnected = getState('isSpreadsheetConnected') || false;
+        function updateUI() {
+            // Ambil state dari SyncModule atau StateManager
+            var state;
+            if (syncModule && typeof syncModule.getState === 'function') {
+                state = syncModule.getState();
+            } else if (stateManager) {
+                if (typeof stateManager.getState === 'function') {
+                    state = stateManager.getState();
+                } else {
+                    state = {
+                        setpointTemp: stateManager.get('setpointTemp'),
+                        setpointHum: stateManager.get('setpointHum'),
+                        error: stateManager.get('error'),
+                        deltaError: stateManager.get('deltaError'),
+                        kp: stateManager.get('kp'),
+                        ki: stateManager.get('ki'),
+                        kd: stateManager.get('kd'),
+                        outputPid: stateManager.get('outputPid'),
+                        rules: stateManager.get('rules'),
+                        mfError: stateManager.get('mfError'),
+                        mfDelta: stateManager.get('mfDelta'),
+                        mfOutput: stateManager.get('mfOutput'),
+                        isMqttConnected: stateManager.get('isMqttConnected'),
+                        wifiStatus: stateManager.get('wifiStatus'),
+                        isSpreadsheetConnected: stateManager.get('isSpreadsheetConnected'),
+                    };
+                }
+            } else {
+                return;
+            }
 
-            var setDot = function(id, online) {
-                var el = document.getElementById(id);
-                if (el) { el.className = 'dot ' + (online ? 'online' : 'offline'); }
-            };
-            setDot('wifiDot', wifiConnected);
-            setDot('mqttDot', mqttConnected);
-            setDot('sheetDot', sheetConnected);
-        }
+            if (!state) return;
 
-        function updateAllUI() {
-            // Setpoint
-            var setpointTemp = getState('setpointTemp') || 27.5;
-            var setpointHum = getState('setpointHum') || 75;
+            var setpointTemp = state.setpointTemp || 27.5;
+            var setpointHum = state.setpointHum || 75;
+            var error = state.error || 0;
+            var deltaError = state.deltaError || 0;
+            var kp = state.kp || 2.0;
+            var ki = state.ki || 0.5;
+            var kd = state.kd || 0.1;
+            var outputPid = state.outputPid || 0;
+            var rules = state.rules || [];
+            var mfError = state.mfError || [];
+            var mfDelta = state.mfDelta || [];
+            var mfOutput = state.mfOutput || [];
+
+            // Log setiap 10 detik
+            if (Math.floor(Date.now() / 10000) !== Math.floor((Date.now() - 10000) / 10000)) {
+                console.log('[Fuzzy] State values:', { setpointTemp, setpointHum, error, deltaError, kp, ki, kd,
+                    outputPid });
+            }
+
+            // ---- Setpoint ----
             var spTemp = document.getElementById('setpointTempDisplay');
             if (spTemp) spTemp.textContent = formatValue(setpointTemp, 1) + ' °C';
             var spHum = document.getElementById('setpointHumDisplay');
             if (spHum) spHum.textContent = formatValue(setpointHum, 0) + ' %';
 
-            // Error
-            var error = getState('error') || 0;
+            // ---- Error ----
             var errEl = document.getElementById('errorDisplay');
             if (errEl) {
                 var errVal = safeNumber(error, 0);
                 errEl.innerHTML = formatValue(error, 2) + ' <span class="unit">°C</span>';
                 errEl.className = 'value ' + (Math.abs(errVal) > 2 ? 'danger' : Math.abs(errVal) > 1 ? 'warning' :
-                'normal');
+                    'normal');
             }
 
-            var deltaError = getState('deltaError') || 0;
             var deltaEl = document.getElementById('deltaErrorDisplay');
             if (deltaEl) {
                 var deltaVal = safeNumber(deltaError, 0);
@@ -1255,11 +1288,7 @@
                     'warning' : 'normal');
             }
 
-            // PID
-            var kp = getState('kp') || 2.0;
-            var ki = getState('ki') || 0.5;
-            var kd = getState('kd') || 0.1;
-            var outputPid = getState('outputPid') || 0;
+            // ---- PID ----
             var kpD = document.getElementById('kpDisplay');
             if (kpD) kpD.textContent = formatValue(kp, 2);
             var kiD = document.getElementById('kiDisplay');
@@ -1269,7 +1298,7 @@
             var outD = document.getElementById('outputDisplay');
             if (outD) outD.innerHTML = formatValue(outputPid, 1) + ' <span class="unit">%</span>';
 
-            // Sliders
+            // ---- Sliders ----
             var kpS = document.getElementById('kpSlider');
             if (kpS) { kpS.value = safeNumber(kp, 0); }
             var kpSD = document.getElementById('kpSliderDisplay');
@@ -1283,8 +1312,7 @@
             var kdSD = document.getElementById('kdSliderDisplay');
             if (kdSD) kdSD.textContent = formatValue(kd, 2);
 
-            // Rules
-            var rules = getState('rules') || [];
+            // ---- Rules ----
             var activeRules = rules.filter(function(r) { return r.active; });
             var ruleList = document.getElementById('ruleList');
             var ruleCount = document.getElementById('ruleCount');
@@ -1295,53 +1323,69 @@
                         '<div class="rule-item"><span class="rule-text text-gray-400">Tidak ada aturan aktif</span></div>';
                 } else {
                     var html = '';
-                    for (var i = 0; i < activeRules.length; i++) {
+                    for (var i = 0; i < Math.min(activeRules.length, 10); i++) {
                         var r = activeRules[i];
                         html += '<div class="rule-item active">' +
-                            '<span class="rule-text">' + r.condition + '</span>' +
-                            '<span class="rule-weight">' + safeNumber(r.weight, 0).toFixed(2) + '</span>' +
+                            '<span class="rule-text">' + (r.condition || r.label || 'Rule ' + (i + 1)) + '</span>' +
+                            '<span class="rule-weight">' + safeNumber(r.weight || r.value || 0, 0).toFixed(2) +
+                            '</span>' +
                             '</div>';
                     }
                     ruleList.innerHTML = html;
                 }
             }
 
-            // MF Error
-            var mfError = getState('mfError') || [];
+            // ---- MF Error ----
             var mfErrorContainer = document.getElementById('mfError');
             if (mfErrorContainer) {
                 var items = mfErrorContainer.querySelectorAll('.mf-item');
+                var mfErrorLabels = mfError.map(function(m) { return m.label || m; });
                 items.forEach(function(el) {
                     var label = el.textContent.trim();
-                    el.classList.toggle('active', mfError.indexOf(label) !== -1);
+                    el.classList.toggle('active', mfErrorLabels.indexOf(label) !== -1 || mfError.indexOf(label) !==
+                        -1);
                 });
             }
 
-            // MF Delta
-            var mfDelta = getState('mfDelta') || [];
+            // ---- MF Delta ----
             var mfDeltaContainer = document.getElementById('mfDelta');
             if (mfDeltaContainer) {
                 var items = mfDeltaContainer.querySelectorAll('.mf-item');
+                var mfDeltaLabels = mfDelta.map(function(m) { return m.label || m; });
                 items.forEach(function(el) {
                     var label = el.textContent.trim();
-                    el.classList.toggle('active', mfDelta.indexOf(label) !== -1);
+                    el.classList.toggle('active', mfDeltaLabels.indexOf(label) !== -1 || mfDelta.indexOf(label) !==
+                        -1);
                 });
             }
 
-            // MF Output
-            var mfOutput = getState('mfOutput') || [];
+            // ---- MF Output ----
             var mfOutputContainer = document.getElementById('mfOutput');
             if (mfOutputContainer) {
                 var items = mfOutputContainer.querySelectorAll('.mf-item');
+                var mfOutputLabels = mfOutput.map(function(m) { return m.label || m; });
                 items.forEach(function(el) {
                     var label = el.textContent.trim();
-                    el.classList.toggle('active', mfOutput.indexOf(label) !== -1);
+                    el.classList.toggle('active', mfOutputLabels.indexOf(label) !== -1 || mfOutput.indexOf(label) !==
+                        -1);
                 });
             }
 
-            // Sembunyikan loading
-            var ls = document.getElementById('loading-screen');
-            if (ls) ls.classList.add('hide');
+            // ---- Status indicators ----
+            var mqttConnected = state.isMqttConnected || false;
+            var wifiConnected = state.wifiStatus === 'online' || true;
+            var sheetConnected = state.isSpreadsheetConnected || false;
+
+            var setDot = function(id, online) {
+                var el = document.getElementById(id);
+                if (el) { el.className = 'dot ' + (online ? 'online' : 'offline'); }
+            };
+            setDot('wifiDot', wifiConnected);
+            setDot('mqttDot', mqttConnected);
+            setDot('sheetDot', sheetConnected);
+
+            // ---- Chart ----
+            updateChart(kp, ki, kd, outputPid, error);
         }
 
         // =============================================================
@@ -1380,7 +1424,6 @@
                 setpointHum: setpointHum,
             };
 
-            // Set ke Core dengan publish & sync
             for (var key in data) {
                 setState(key, data[key], { publish: true, sync: true });
             }
@@ -1390,7 +1433,6 @@
 
             showToast('Tuning diterapkan: Kp=' + kp.toFixed(1) + ', Ki=' + ki.toFixed(1) + ', Kd=' + kd.toFixed(2),
                 'success');
-            updateAllUI();
         });
 
         // =============================================================
@@ -1484,23 +1526,17 @@
             });
         }
 
-        function updateChartData() {
+        function updateChart(kp, ki, kd, output, error) {
             if (!chart) return;
             var now = formatTime();
             var maxPoints = 200;
 
-            var kp = getState('kp') || 2.0;
-            var ki = getState('ki') || 0.5;
-            var kd = getState('kd') || 0.1;
-            var output = getState('outputPid') || 0;
-            var error = getState('error') || 0;
-
             chartData.labels.push(now);
-            chartData.kp.push(kp);
-            chartData.ki.push(ki);
-            chartData.kd.push(kd);
-            chartData.output.push(output);
-            chartData.error.push(error);
+            chartData.kp.push(kp || 0);
+            chartData.ki.push(ki || 0);
+            chartData.kd.push(kd || 0);
+            chartData.output.push(output || 0);
+            chartData.error.push(error || 0);
 
             if (chartData.labels.length > maxPoints) {
                 chartData.labels.shift();
@@ -1543,17 +1579,7 @@
         });
 
         // =============================================================
-        // 11. SINKRONISASI DARI SyncModule
-        // =============================================================
-        if (typeof SyncModule !== 'undefined') {
-            SyncModule.setOnStateChange(function(syncState) {
-                updateAllUI();
-                updateChartData();
-            });
-        }
-
-        // =============================================================
-        // 12. CLOCK & SIDEBAR
+        // 11. CLOCK & SIDEBAR
         // =============================================================
         function updateClock() {
             document.getElementById('clock').textContent = formatTime();
@@ -1573,117 +1599,84 @@
         });
 
         // =============================================================
-        // 13. INIT
+        // 12. INITIALIZATION (FINAL)
         // =============================================================
         function init() {
-            if (initialized) return;
-            initialized = true;
+            console.log('[Fuzzy] init called');
 
-            // Tunggu Core siap
-            if (typeof Core === 'undefined' || !Core.initialized) {
-                setTimeout(init, 500);
+            if (initialized) {
+                console.log('[Fuzzy] Already initialized');
                 return;
             }
 
-            stateManager = Core.getStateManager ? Core.getStateManager() : null;
-            mqttManager = Core.getMqttManager ? Core.getMqttManager() : null;
-            syncModule = typeof SyncModule !== 'undefined' ? SyncModule : null;
+            // Tunggu Core dan Sync siap
+            if (typeof window.SyncModule === 'undefined') {
+                console.log('[Fuzzy] Menunggu SyncModule siap...');
+                setTimeout(init, 300);
+                return;
+            }
+
+            stateManager = window.StateManager || null;
+            mqttManager = window.MqttManager || window.mqttManager || null;
+            syncModule = window.SyncModule || null;
 
             if (!stateManager) {
-                console.warn('StateManager tidak tersedia, gunakan fallback');
+                console.error('[Fuzzy] StateManager tidak ditemukan!');
                 stateManager = {
-                    get: function(key) { return window.__fallbackState ? window.__fallbackState[key] : null; },
-                    set: function(key, value) {
-                        window.__fallbackState = window.__fallbackState || {};
-                        window.__fallbackState[key] = value;
-                    },
-                    addListener: function() {}
-                };
-                window.__fallbackState = {
-                    setpointTemp: 27.5,
-                    setpointHum: 75,
-                    kp: 2.0,
-                    ki: 0.5,
-                    kd: 0.1,
-                    error: 0,
-                    deltaError: 0,
-                    outputPid: 0,
-                    rules: [],
-                    mfError: ['Z'],
-                    mfDelta: ['Z'],
-                    mfOutput: ['Z'],
+                    get: function() { return null; },
+                    set: function() {},
+                    addListener: function() {},
+                    update: function() {}
                 };
             }
 
-            // Inisialisasi Core jika belum
-            if (typeof Core.init === 'function' && !Core.initialized) {
-                Core.init({
-                    config: {
-                        SPREADSHEET_API: APP_CONFIG.SPREADSHEET_API,
-                    },
-                    telegram: {
-                        token: APP_CONFIG.TELEGRAM_BOT_TOKEN,
-                        chatId: APP_CONFIG.TELEGRAM_CHAT_ID,
-                    }
-                });
-            }
-
-            // Subscribe ke perubahan state via StateManager
-            if (stateManager && typeof stateManager.addListener === 'function') {
-                stateManager.addListener('*', function(key, value, oldValue) {
-                    updateAllUI();
-                    updateChartData();
-                });
-            }
-
-            // Gunakan SyncModule untuk sinkronisasi antar user
-            if (syncModule && typeof syncModule.subscribeState === 'function') {
-                syncModule.subscribeState(mqttManager);
-                syncModule.setOnStateChange(function(state) {
-                    updateAllUI();
-                    updateChartData();
-                });
-            }
+            console.log('[Fuzzy] stateManager:', stateManager);
+            console.log('[Fuzzy] mqttManager:', mqttManager);
+            console.log('[Fuzzy] syncModule:', syncModule);
 
             // Inisialisasi chart
             initChart();
 
-            // Update UI pertama kali
-            updateAllUI();
-
             // Sembunyikan loading
             var loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
-                setTimeout(function() { loadingScreen.classList.add('hide'); }, 800);
+                setTimeout(function() { loadingScreen.classList.add('hide'); }, 500);
             }
 
-            // Update status periodik
-            setInterval(function() {
-                updateStatusIndicators();
-            }, 10000);
+            // POLLING SETIAP 1 DETIK
+            if (uiUpdateInterval) clearInterval(uiUpdateInterval);
+            uiUpdateInterval = setInterval(function() {
+                updateUI();
+            }, 1000);
 
-            // Periodik update chart
-            setInterval(function() {
-                updateChartData();
-            }, 2000);
+            // Update pertama
+            setTimeout(updateUI, 100);
 
             // Periodik publish status fuzzy
             setInterval(function() {
                 publishFuzzyStatus();
             }, 10000);
 
-            addNotification('Fuzzy PID siap dengan Core System', 'success');
-            console.log('🧠 Fuzzy PID menggunakan Core System v3.0');
+            addNotification('Fuzzy PID siap', 'success');
+            console.log('🧠 Fuzzy PID FINAL siap dengan polling 1 detik');
+
+            initialized = true;
         }
 
         // =============================================================
-        // 14. START
+        // 13. START
         // =============================================================
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
-            setTimeout(init, 300);
+            setTimeout(init, 200);
         }
+
+        // Fallback: hilangkan loading screen setelah 3 detik
+        setTimeout(function() {
+            var ls = document.getElementById('loading-screen');
+            if (ls) ls.classList.add('hide');
+        }, 3000);
 
         // Ekspos untuk debugging
         window.__stateManager = stateManager;
@@ -1691,7 +1684,9 @@
         window.__syncModule = syncModule;
         window.__publishFuzzyStatus = publishFuzzyStatus;
         window.__publishTuning = publishTuning;
-        console.log('🧠 Fuzzy PID siap, menunggu Core System...');
+        window.__updateUI = updateUI;
+
+        console.log('🧠 Fuzzy PID siap, menunggu inisialisasi...');
     </script>
 
 </body>

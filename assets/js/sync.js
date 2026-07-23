@@ -1,7 +1,7 @@
 /**
  * sync.js - Modul Sinkronisasi Multi-User via MQTT
  * Terintegrasi dengan Core System (StateManager, MqttManager)
- * 
+ *
  * @author Muhammad Gatan Rifani
  * @version 3.0.1
  */
@@ -23,6 +23,8 @@
     var _mqttManager = null;
     var _onStateChange = null;
     var _isInitialized = false;
+    var _initRetries = 0;
+    var MAX_INIT_RETRIES = 15;
 
     // ============================================================
     // 3. INISIALISASI (dengan pengecekan Core siap)
@@ -30,10 +32,14 @@
     function init() {
         if (_isInitialized) return;
 
-        // Tunggu Core System benar-benar siap
+        // Tunggu Core System siap (maksimal 15 percobaan)
         if (typeof global.Core === 'undefined' || !global.Core.initialized) {
-            setTimeout(init, 300);
-            return;
+            if (_initRetries < MAX_INIT_RETRIES) {
+                _initRetries++;
+                setTimeout(init, 300);
+                return;
+            }
+            console.warn('[Sync] Core belum siap setelah batas waktu, menggunakan fallback');
         }
 
         // Ambil referensi dari global Core
@@ -79,9 +85,11 @@
         }
 
         if (_mqttManager) {
-            // Subscribe ke topik state (core.js sebenarnya sudah melakukannya, tapi kita pastikan)
+            // Subscribe ke topik state
             if (typeof _mqttManager.subscribe === 'function') {
-                _mqttManager.subscribe(TOPIC_STATE);
+                _mqttManager.subscribe(TOPIC_STATE, function(data) {
+                    handleStateMessage(TOPIC_STATE, data);
+                });
             } else if (_mqttManager.client && typeof _mqttManager.client.subscribe === 'function') {
                 _mqttManager.client.subscribe(TOPIC_STATE);
             }
@@ -185,14 +193,14 @@
             return;
         }
 
-        if (typeof target.on === 'function') {
+        if (typeof target.subscribe === 'function') {
+            target.subscribe(TOPIC_STATE, function(data) {
+                handleStateMessage(TOPIC_STATE, data);
+            });
+        } else if (typeof target.on === 'function') {
             target.on(TOPIC_STATE, function(data) {
                 handleStateMessage(TOPIC_STATE, data);
             });
-        }
-
-        if (typeof target.subscribe === 'function') {
-            target.subscribe(TOPIC_STATE);
         } else if (target.client && typeof target.client.subscribe === 'function') {
             target.client.subscribe(TOPIC_STATE);
         }
